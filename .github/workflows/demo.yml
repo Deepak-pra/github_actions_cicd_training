@@ -20,7 +20,23 @@ jobs:
       - name: Node.js Setup
         uses: actions/setup-node@v6
         with:
-          node-version: '20'    
+          node-version: '20'   
+          
+      - name: Install dependencies
+        working-directory: apps/node
+        run: npm ci
+
+      - name: Run lint
+        working-directory: apps/node
+        run: npm run lint    
+
+      - name: Run unit tests
+        working-directory: apps/node
+        run: npx jest __tests__/utils.test.js 
+
+      - name: Run integration tests
+        working-directory: apps/node
+        run: npx jest __tests__/pipeline.test.js --coverage  
         
       
       
