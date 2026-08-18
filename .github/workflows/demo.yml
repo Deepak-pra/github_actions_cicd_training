@@ -1,7 +1,2 @@
 name: demo
 
-on:
-  push:
-    branches:
-      - dev
-
