@@ -1,3 +1,7 @@
+/**
+ * General utility functions used by utils.test.js.
+ */
+
 function add(a, b) {
   return a + b;
 }
@@ -18,8 +22,8 @@ function divide(a, b) {
   return a / b;
 }
 
-function isEven(n) {
-  return n % 2 === 0;
+function isEven(number) {
+  return number % 2 === 0;
 }
 
 module.exports = {
@@ -27,5 +31,5 @@ module.exports = {
   subtract,
   multiply,
   divide,
-  isEven
+  isEven,
 };

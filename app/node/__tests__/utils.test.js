@@ -1,9 +1,15 @@
 /**
- * Tests for utils.js
+ * Tests for utils.js.
  * Run with: npm test
  */
 
-const { add, subtract, multiply, divide, isEven } = require("../src/utils");
+const {
+  add,
+  subtract,
+  multiply,
+  divide,
+  isEven,
+} = require("../src/utils");
 
 describe("add", () => {
   test("adds two positive numbers", () => {
@@ -45,7 +51,9 @@ describe("divide", () => {
   });
 
   test("throws error when dividing by zero", () => {
-    expect(() => divide(10, 0)).toThrow("Cannot divide by zero");
+    expect(() => divide(10, 0)).toThrow(
+      "Cannot divide by zero"
+    );
   });
 });
 

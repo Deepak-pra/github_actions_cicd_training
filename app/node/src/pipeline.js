@@ -1,32 +1,31 @@
-const { add, subtract, multiply, divide } = require("./utils");
+/**
+ * Business logic used by pipeline.test.js.
+ */
 
-function calculateDiscount(price, discountPercent) {
-  const discount = divide(multiply(price, discountPercent), 100);
-  return subtract(price, discount);
+function calculateDiscount(price, discountPercentage) {
+  return price - (price * discountPercentage) / 100;
 }
 
 function calculateTotal(items) {
-  let total = 0;
-
-  for (const price of items) {
-    total = add(total, price);
-  }
-
-  return total;
+  return items.reduce((total, item) => total + item, 0);
 }
 
 function calculateAverage(items) {
-  const total = calculateTotal(items);
-  return divide(total, items.length);
+  if (items.length === 0) {
+    throw new Error("Cannot divide by zero");
+  }
+
+  return calculateTotal(items) / items.length;
 }
 
-function isBulkOrder(quantity, threshold = 10) {
-  return quantity >= threshold;
+function isBulkOrder(quantity) {
+  const bulkOrderThreshold = 10;
+  return quantity >= bulkOrderThreshold;
 }
 
 module.exports = {
   calculateDiscount,
   calculateTotal,
   calculateAverage,
-  isBulkOrder
+  isBulkOrder,
 };
