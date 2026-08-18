@@ -23,19 +23,19 @@ jobs:
           node-version: '20'   
           
       - name: Install dependencies
-        working-directory: apps/node
+        working-directory: app/node
         run: npm ci
 
       - name: Run lint
-        working-directory: apps/node
+        working-directory: app/node
         run: npm run lint    
 
       - name: Run unit tests
-        working-directory: apps/node
+        working-directory: app/node
         run: npx jest __tests__/utils.test.js 
 
       - name: Run integration tests
-        working-directory: apps/node
+        working-directory: app/node
         run: npx jest __tests__/pipeline.test.js --coverage  
         
       
