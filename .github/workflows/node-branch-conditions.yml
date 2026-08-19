@@ -7,12 +7,19 @@ on:
       - stage
       - main
 
+    paths:
+      # Include changes to this workflow file.
+      - ".github/workflows/node-branch-conditions.yml"
+
+      # Explicitly ignore changes to the existing demo workflow.
+      - "!.github/workflows/demo.yml"
+
 permissions:
   contents: read
 
 jobs:
   unit-test:
-    name: Condition test
+    name: Primary Unit Test
     runs-on: ubuntu-latest
 
     defaults:
@@ -60,7 +67,7 @@ jobs:
           echo "This step runs only for the stage branch."
           echo "Current branch: ${{ github.ref_name }}"
           echo "Stage validation completed."
-      # Step-level condition for main branch
+
       - name: Main branch step
         if: ${{ github.ref_name == 'main' }}
         run: |
@@ -72,9 +79,7 @@ jobs:
     name: Dev Branch Job
     needs:
       - unit-test
-
     if: ${{ github.ref_name == 'dev' }}
-
     runs-on: ubuntu-latest
 
     steps:
@@ -82,16 +87,14 @@ jobs:
         run: |
           echo "This entire job runs only for the dev branch."
           echo "Current branch: ${{ github.ref_name }}"
-          echo "The primary unit-test job completed successfully."
+          echo "Primary unit tests completed successfully."
           echo "Dev branch job completed."
 
   stage-job:
     name: Stage Branch Job
     needs:
       - unit-test
-
     if: ${{ github.ref_name == 'stage' }}
-
     runs-on: ubuntu-latest
 
     steps:
@@ -99,16 +102,14 @@ jobs:
         run: |
           echo "This entire job runs only for the stage branch."
           echo "Current branch: ${{ github.ref_name }}"
-          echo "The primary unit-test job completed successfully."
+          echo "Primary unit tests completed successfully."
           echo "Stage branch job completed."
 
   main-job:
     name: Main Branch Job
     needs:
       - unit-test
-
     if: ${{ github.ref_name == 'main' }}
-
     runs-on: ubuntu-latest
 
     steps:
@@ -116,5 +117,5 @@ jobs:
         run: |
           echo "This entire job runs only for the main branch."
           echo "Current branch: ${{ github.ref_name }}"
-          echo "The primary unit-test job completed successfully."
+          echo "Primary unit tests completed successfully."
           echo "Main branch job completed."
