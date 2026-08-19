@@ -1,0 +1,120 @@
+name: Node Branch Conditions Demo
+
+on:
+  push:
+    branches:
+      - dev
+      - stage
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  unit-test:
+    name: Condition test
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: app/node
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Show primary workflow information
+        run: |
+          echo "Primary workflow started"
+          echo "Workflow: ${{ github.workflow }}"
+          echo "Event: ${{ github.event_name }}"
+          echo "Branch: ${{ github.ref_name }}"
+          echo "Commit SHA: ${{ github.sha }}"
+          echo "Run number: ${{ github.run_number }}"
+          echo "Node version: $(node --version)"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Dev branch step
+        if: ${{ github.ref_name == 'dev' }}
+        run: |
+          echo "This step runs only for the dev branch."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Development validation completed."
+
+      - name: Stage branch step
+        if: ${{ github.ref_name == 'stage' }}
+        run: |
+          echo "This step runs only for the stage branch."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Stage validation completed."
+      # Step-level condition for main branch
+      - name: Main branch step
+        if: ${{ github.ref_name == 'main' }}
+        run: |
+          echo "This step runs only for the main branch."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "Production validation completed."
+
+  dev-job:
+    name: Dev Branch Job
+    needs:
+      - unit-test
+
+    if: ${{ github.ref_name == 'dev' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run dev job
+        run: |
+          echo "This entire job runs only for the dev branch."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "The primary unit-test job completed successfully."
+          echo "Dev branch job completed."
+
+  stage-job:
+    name: Stage Branch Job
+    needs:
+      - unit-test
+
+    if: ${{ github.ref_name == 'stage' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run stage job
+        run: |
+          echo "This entire job runs only for the stage branch."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "The primary unit-test job completed successfully."
+          echo "Stage branch job completed."
+
+  main-job:
+    name: Main Branch Job
+    needs:
+      - unit-test
+
+    if: ${{ github.ref_name == 'main' }}
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Run main job
+        run: |
+          echo "This entire job runs only for the main branch."
+          echo "Current branch: ${{ github.ref_name }}"
+          echo "The primary unit-test job completed successfully."
+          echo "Main branch job completed."
