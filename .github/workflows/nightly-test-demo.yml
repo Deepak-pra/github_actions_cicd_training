@@ -1,10 +1,10 @@
 name: Nightly Test Demo
 
 on:
-  # GitHub Actions cron uses UTC by default.
-  # 1:00 PM IST = 07:30 AM UTC.
+  # GitHub Actions cron uses UTC.
+  # 2:00 PM IST = 08:30 AM UTC.
   schedule:
-    - cron: "50 7 * * *"
+    - cron: "30 8 * * *"
 
 permissions:
   contents: read
@@ -20,8 +20,10 @@ jobs:
         working-directory: app/node
 
     steps:
-      - name: Checkout repository
+      - name: Checkout dev branch
         uses: actions/checkout@v4
+        with:
+          ref: dev
 
       - name: Set up Node.js
         uses: actions/setup-node@v6
@@ -34,10 +36,11 @@ jobs:
         run: |
           echo "Nightly test workflow started"
           echo "Event: ${{ github.event_name }}"
-          *cho "Branch: ${{ github.ref_name }}"
+          echo "Workflow branch: ${{ github.ref_name }}"
+          echo "Application branch checked out: dev"
           echo "Run number: ${{ github.run_number }}"
           echo "Triggered at UTC: $(date -u)"
-          echo "Scheduled time: 1:00 PM IST"
+          echo "Scheduled time: 2:00 PM IST"
 
       - name: Install dependencies
         run: npm ci
