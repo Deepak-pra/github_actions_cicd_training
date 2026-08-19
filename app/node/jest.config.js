@@ -1,22 +1,19 @@
 /** @type {import("jest").Config} */
 module.exports = {
+  rootDir: __dirname,
+
   testEnvironment: "node",
 
-  roots: [
-    "<rootDir>/src",
-    "<rootDir>/__tests__",
-  ],
-
   testMatch: [
-    "**/__tests__/**/*.test.js",
+    "<rootDir>/__tests__/**/*.test.js",
   ],
 
   collectCoverageFrom: [
-    "src/**/*.js",
-    "!src/**/*.test.js",
+    "<rootDir>/src/**/*.js",
+    "!<rootDir>/src/server.js",
   ],
 
-  coverageDirectory: "coverage",
+  coverageDirectory: "<rootDir>/coverage",
 
   coverageReporters: [
     "text",
