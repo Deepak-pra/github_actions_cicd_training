@@ -1,0 +1,23 @@
+{
+  "name": "shipfast-node",
+  "version": "1.0.0",
+  "description": "ShipFast Node.js GitHub Actions training application",
+  "main": "src/server.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/server.js",
+    "lint": "eslint src scripts --ext .js",
+    "test": "jest --config jest.config.js",
+    "test:unit": "jest __tests__/utils.test.js --config jest.config.js",
+    "test:integration": "jest __tests__/pipeline.test.js --config jest.config.js --coverage",
+    "test:coverage": "jest --config jest.config.js --coverage",
+    "build:web": "node scripts/build-web.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "eslint": "8.57.1",
+    "jest": "29.7.0"
+  }
+}
