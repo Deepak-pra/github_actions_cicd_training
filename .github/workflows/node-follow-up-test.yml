@@ -1,0 +1,64 @@
+name: Node Follow-up Test
+
+on:
+  workflow_run:
+    workflows:
+      - "Node Primary Test"
+
+    branches:
+      - dev
+      - stage
+      - main
+
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  follow-up-unit-test:
+    name: Follow-up Unit Test
+
+    # workflow_run fires when the upstream workflow completes,
+    # whether it passed or failed.
+    # This condition allows the job to run only after success.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        shell: bash
+        working-directory: app/node
+
+    steps:
+      - name: Checkout commit from primary workflow
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Show workflow_run information
+        run: |
+          echo "Follow-up workflow started"
+          echo "Trigger event: ${{ github.event_name }}"
+          echo "Primary workflow name: ${{ github.event.workflow_run.name }}"
+          echo "Primary workflow result: ${{ github.event.workflow_run.conclusion }}"
+          echo "Primary workflow branch: ${{ github.event.workflow_run.head_branch }}"
+          echo "Primary workflow commit: ${{ github.event.workflow_run.head_sha }}"
+          echo "Primary workflow run ID: ${{ github.event.workflow_run.id }}"
+          echo "Current workflow run number: ${{ github.run_number }}"
+          echo "Node version: $(node --version)"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test:integration
