@@ -4,7 +4,7 @@ on:
   # GitHub Actions cron uses UTC by default.
   # 1:00 PM IST = 07:30 AM UTC.
   schedule:
-    - cron: "30 7 * * *"
+    - cron: "50 7 * * *"
 
 permissions:
   contents: read
