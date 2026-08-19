@@ -1,0 +1,50 @@
+name: Demo
+
+on:
+  push:
+    branches:
+      - dev
+      - stage
+      - main
+  pull_request:
+    branches: [ dev, stage, main ]    
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    name: Node CI Demo
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Code checkout
+        uses: actions/checkout@v4
+
+      - name: Python Setup
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Node.js Setup
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app/node
+        run: npm ci
+
+      - name: Run lint
+        working-directory: app/node
+        run: npm run lint
+
+      - name: Run unit tests
+        working-directory: app/node
+        run: npm run test:unit
+
+      - name: Run integration tests
+        working-directory: app/node
+        run: npm run test:integration
