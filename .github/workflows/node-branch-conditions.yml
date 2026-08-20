@@ -21,7 +21,6 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        shell: bash
         working-directory: app/node
     steps:
       - uses: actions/checkout@v4
@@ -53,6 +52,7 @@ jobs:
     runs-on: windows-latest
     defaults:
       run:
+        shell: bash
         working-directory: app/node
     outputs:
       node_version: ${{ steps.meta.outputs.node_version }}
