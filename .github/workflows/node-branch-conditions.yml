@@ -1,4 +1,4 @@
-name: Node Branch Conditions Demo
+name: Node CI - Split Jobs
 
 on:
   push:
@@ -6,27 +6,28 @@ on:
       - dev
       - stage
       - main
-
     paths:
       # Include changes to this workflow file.
       - ".github/workflows/node-branch-conditions.yml"
-
       # Explicitly ignore changes to the existing demo workflow.
       - "!.github/workflows/demo.yml"
 
 permissions:
   contents: read
 
-jobs:
-  unit-test:
-    name: Primary Unit Test
-    runs-on: ubuntu-latest
+concurrency:
+  group: node-split-${{ github.ref }}
+  cancel-in-progress: true
 
+jobs:
+  # ── 1) LINT ────────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
         working-directory: app/node
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -38,15 +39,39 @@ jobs:
           cache: npm
           cache-dependency-path: app/node/package-lock.json
 
-      - name: Show primary workflow information
-        run: |
-          echo "Primary workflow started"
-          echo "Workflow: ${{ github.workflow }}"
-          echo "Event: ${{ github.event_name }}"
-          echo "Branch: ${{ github.ref_name }}"
-          echo "Commit SHA: ${{ github.sha }}"
-          echo "Run number: ${{ github.run_number }}"
-          echo "Node version: $(node --version)"
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Lint summary
+        run: echo "### Lint passed on ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 2) UNIT TESTS  (runs only after lint passes) ───────────
+  unit-test:
+    name: Unit Tests
+    needs:
+      - lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: app/node
+    outputs:
+      node_version: ${{ steps.meta.outputs.node_version }}
+      tested_sha:   ${{ steps.meta.outputs.tested_sha }}
+      result:       ${{ steps.meta.outputs.result }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -54,68 +79,63 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit
 
-      - name: Dev branch step
+      - name: Capture job outputs ($GITHUB_OUTPUT)
+        id: meta
+        run: |
+          echo "node_version=$(node --version)" >> "$GITHUB_OUTPUT"
+          echo "tested_sha=${{ github.sha }}"    >> "$GITHUB_OUTPUT"
+          echo "result=passed"                   >> "$GITHUB_OUTPUT"
+
+      - name: Unit test summary
+        run: |
+          {
+            echo "## Unit Tests - ${{ github.ref_name }}"
+            echo "| Item | Value |"
+            echo "|------|-------|"
+            echo "| Node | $(node --version) |"
+            echo "| Commit | ${{ github.sha }} |"
+            echo "| Result | passed |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 3) INTEGRATION TESTS  (runs only after unit tests pass) ─
+  integration-test:
+    name: Integration Tests
+    needs:
+      - unit-test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: app/node
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Integration summary
+        run: |
+          echo "### Integration passed for ${{ needs.unit-test.outputs.tested_sha }} (Node ${{ needs.unit-test.outputs.node_version }})" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dev gate
         if: ${{ github.ref_name == 'dev' }}
-        run: |
-          echo "This step runs only for the dev branch."
-          echo "Current branch: ${{ github.ref_name }}"
-          echo "Development validation completed."
+        run: echo "Development gate passed."
 
-      - name: Stage branch step
+      - name: Stage gate
         if: ${{ github.ref_name == 'stage' }}
-        run: |
-          echo "This step runs only for the stage branch."
-          echo "Current branch: ${{ github.ref_name }}"
-          echo "Stage validation completed."
+        run: echo "Stage gate passed."
 
-      - name: Main branch step
+      - name: Main gate
         if: ${{ github.ref_name == 'main' }}
-        run: |
-          echo "This step runs only for the main branch."
-          echo "Current branch: ${{ github.ref_name }}"
-          echo "Production validation completed."
-
-  dev-job:
-    name: Dev Branch Job
-    needs:
-      - unit-test
-    if: ${{ github.ref_name == 'dev' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Run dev job
-        run: |
-          echo "This entire job runs only for the dev branch."
-          echo "Current branch: ${{ github.ref_name }}"
-          echo "Primary unit tests completed successfully."
-          echo "Dev branch job completed."
-
-  stage-job:
-    name: Stage Branch Job
-    needs:
-      - unit-test
-    if: ${{ github.ref_name == 'stage' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Run stage job
-        run: |
-          echo "This entire job runs only for the stage branch."
-          echo "Current branch: ${{ github.ref_name }}"
-          echo "Primary unit tests completed successfully."
-          echo "Stage branch job completed."
-
-  main-job:
-    name: Main Branch Job
-    needs:
-      - unit-test
-    if: ${{ github.ref_name == 'main' }}
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Run main job
-        run: |
-          echo "This entire job runs only for the main branch."
-          echo "Current branch: ${{ github.ref_name }}"
-          echo "Primary unit tests completed successfully."
-          echo "Main branch job completed."
+        run: echo "Production gate passed."
