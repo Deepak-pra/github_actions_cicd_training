@@ -2,14 +2,9 @@ name: Node CI - Split Jobs
 
 on:
   push:
-    branches:
-      - dev
-      - stage
-      - main
+    branches: [dev, stage, main]
     paths:
-      # Include changes to this workflow file.
       - ".github/workflows/node-branch-conditions.yml"
-      # Explicitly ignore changes to the existing demo workflow.
       - "!.github/workflows/demo.yml"
 
 permissions:
@@ -21,6 +16,7 @@ concurrency:
 
 jobs:
   # ── 1) LINT ────────────────────────────────────────────────
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
@@ -29,11 +25,9 @@ jobs:
         shell: bash
         working-directory: app/node
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
@@ -43,17 +37,22 @@ jobs:
         run: npm ci
 
       - name: Run lint
-        run: npm run lint
+        run: |
+          # ::group:: — collapsible log · ::notice:: — annotation
+          echo "::group::ESLint"
+          echo "::notice title=Lint::Running eslint on ${{ github.ref_name }}"
+          npm run lint
+          echo "::endgroup::"
 
       - name: Lint summary
         run: echo "### Lint passed on ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 2) UNIT TESTS  (runs only after lint passes) ───────────
+  # ── 2) UNIT TESTS ──────────────────────────────────────────
+
   unit-test:
     name: Unit Tests
-    needs:
-      - lint
-    runs-on: ubuntu-latest
+    needs: [lint]
+    runs-on: windows-latest
     defaults:
       run:
         shell: bash
@@ -63,30 +62,52 @@ jobs:
       tested_sha:   ${{ steps.meta.outputs.tested_sha }}
       result:       ${{ steps.meta.outputs.result }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: app/node/package-lock.json
 
+      - name: Debug context (::debug::)
+        shell: sh
+        run: |
+          # Only visible when ACTIONS_STEP_DEBUG=true
+          echo "::debug::Event=${{ github.event_name }} Branch=${{ github.ref_name }} SHA=${{ github.sha }}"
+
       - name: Install dependencies
+        shell: sh
         run: npm ci
 
-      - name: Run unit tests
-        run: npm run test:unit
+      - name: Mask a demo secret (::add-mask::)
+        shell: sh
+        run: |
+          FAKE_TOKEN="super-secret-123"
+          echo "::add-mask::$FAKE_TOKEN"
+          echo "Token in logs is now: $FAKE_TOKEN"   # prints ***
 
-      - name: Capture job outputs ($GITHUB_OUTPUT)
+      - name: Run unit tests
+        shell: sh
+        run: |
+          echo "::group::Jest unit tests"
+          npm run test:unit
+          echo "::endgroup::"
+
+      - name: Capture job outputs
+        shell: sh
         id: meta
         run: |
           echo "node_version=$(node --version)" >> "$GITHUB_OUTPUT"
           echo "tested_sha=${{ github.sha }}"    >> "$GITHUB_OUTPUT"
           echo "result=passed"                   >> "$GITHUB_OUTPUT"
 
+      - name: Warn on coverage (::warning::)
+        shell: sh
+        run: echo "::warning title=Coverage::Coverage is a demo warning - job stays green"
+
       - name: Unit test summary
+        shell: sh
         run: |
           {
             echo "## Unit Tests - ${{ github.ref_name }}"
@@ -97,22 +118,20 @@ jobs:
             echo "| Result | passed |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 3) INTEGRATION TESTS  (runs only after unit tests pass) ─
+  # ── 3) INTEGRATION TESTS ───────────────────────────────────
+
   integration-test:
     name: Integration Tests
-    needs:
-      - unit-test
+    needs: [unit-test]
     runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
         working-directory: app/node
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
@@ -122,11 +141,13 @@ jobs:
         run: npm ci
 
       - name: Run integration tests
-        run: npm run test:integration
+        run: |
+          echo "::group::Jest integration tests"
+          npm run test:integration
+          echo "::endgroup::"
 
       - name: Integration summary
-        run: |
-          echo "### Integration passed for ${{ needs.unit-test.outputs.tested_sha }} (Node ${{ needs.unit-test.outputs.node_version }})" >> "$GITHUB_STEP_SUMMARY"
+        run: echo "### Integration passed for ${{ needs.unit-test.outputs.tested_sha }} (Node ${{ needs.unit-test.outputs.node_version }})" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Dev gate
         if: ${{ github.ref_name == 'dev' }}
@@ -135,7 +156,7 @@ jobs:
       - name: Stage gate
         if: ${{ github.ref_name == 'stage' }}
         run: echo "Stage gate passed."
-
+        
       - name: Main gate
         if: ${{ github.ref_name == 'main' }}
         run: echo "Production gate passed."

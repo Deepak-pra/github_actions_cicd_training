@@ -6,6 +6,8 @@ on:
       - dev
       - stage
       - main
+    paths:
+      - ".github/workflows/node-primary-test.yml"  
 
 permissions:
   contents: read
