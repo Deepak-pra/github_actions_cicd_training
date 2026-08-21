@@ -32,9 +32,8 @@ jobs:
           cache-dependency-path: app/node/package-lock.json
 
       - name: Install dependencies
-        run: npm init
-        continue-on-error: true
-
+        run: npm ci
+        
       - name: Run lint
         run: |
           # ::group:: — collapsible log · ::notice:: — annotation
@@ -42,6 +41,7 @@ jobs:
           echo "::notice title=Lint::Running eslint on ${{ github.ref_name }}"
           npm run lint
           echo "::endgroup::"
+        continue-on-error: true  
 
       - name: Lint summary
         run: echo "### Lint passed on ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
