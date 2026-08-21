@@ -118,7 +118,7 @@ jobs:
   # ── 3) INTEGRATION TESTS ───────────────────────────────────
   integration-test:
     name: Integration Tests
-    needs: lint
+    needs: unit-test
     runs-on: ubuntu-latest
     defaults:
       run:
