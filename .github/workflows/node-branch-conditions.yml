@@ -48,7 +48,6 @@ jobs:
   # ── 2) UNIT TESTS ──────────────────────────────────────────
   unit-test:
     name: Unit Tests
-    needs: [lint]
     runs-on: windows-latest
     defaults:
       run:
@@ -118,7 +117,6 @@ jobs:
   # ── 3) INTEGRATION TESTS ───────────────────────────────────
   integration-test:
     name: Integration Tests
-    needs: [unit-test]
     runs-on: ubuntu-latest
     defaults:
       run:
