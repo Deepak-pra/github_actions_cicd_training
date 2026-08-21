@@ -1,8 +1,7 @@
 name: Nightly Test Demo
 
 on:
-  schedule:
-
+  workflow_dispatch
 
 permissions:
   contents: read
