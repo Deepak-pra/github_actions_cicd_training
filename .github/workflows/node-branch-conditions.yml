@@ -41,7 +41,7 @@ jobs:
           echo "::notice title=Lint::Running eslint on ${{ github.ref_name }}"
           npm break
           echo "::endgroup::"
-        continue-on-error: true  
+        continue-on-error: false  
 
       - name: Lint summary
         run: echo "### Lint passed on ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
