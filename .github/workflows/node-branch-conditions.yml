@@ -32,7 +32,7 @@ jobs:
           cache-dependency-path: app/node/package-lock.json
 
       - name: Install dependencies
-        run: npm init
+        run: npm ci
 
       - name: Run lint
         run: |
@@ -118,7 +118,7 @@ jobs:
   # ── 3) INTEGRATION TESTS ───────────────────────────────────
   integration-test:
     name: Integration Tests
-    needs: unit-test
+    needs: [ lint, unit-test ]
     runs-on: ubuntu-latest
     defaults:
       run:
