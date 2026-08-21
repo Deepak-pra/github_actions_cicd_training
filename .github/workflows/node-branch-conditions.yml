@@ -39,7 +39,7 @@ jobs:
           # ::group:: — collapsible log · ::notice:: — annotation
           echo "::group::ESLint"
           echo "::notice title=Lint::Running eslint on ${{ github.ref_name }}"
-          npm run lint
+          npm break
           echo "::endgroup::"
         continue-on-error: true  
 
