@@ -19,12 +19,14 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
     defaults:
       run:
         working-directory: app/node
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4.2.2
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
@@ -33,24 +35,22 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
-        
+
       - name: Run lint
         run: |
-          # ::group:: — collapsible log · ::notice:: — annotation
           echo "::group::ESLint"
           echo "::notice title=Lint::Running eslint on ${{ github.ref_name }}"
-          npm break
+          npm run lint
           echo "::endgroup::"
-        continue-on-error: false  
-
-      - name: Lint summary
-        run: echo "### Lint passed on ${{ github.ref_name }}" >> "$GITHUB_STEP_SUMMARY"
 
   # ── 2) UNIT TESTS ──────────────────────────────────────────
   unit-test:
     name: Unit Tests
     needs: lint
     runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
         shell: bash
@@ -58,75 +58,52 @@ jobs:
     outputs:
       node_version: ${{ steps.meta.outputs.node_version }}
       tested_sha:   ${{ steps.meta.outputs.tested_sha }}
-      result:       ${{ steps.meta.outputs.result }}
     steps:
-      - uses: actions/checkout@v4
-      
+      - uses: actions/checkout@v4.2.2
+
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           cache: npm
           cache-dependency-path: app/node/package-lock.json
 
-      - name: Debug context (::debug::)
-        shell: sh
-        run: |
-          # Only visible when ACTIONS_STEP_DEBUG=true
-          echo "::debug::Event=${{ github.event_name }} Branch=${{ github.ref_name }} SHA=${{ github.sha }}"
-
       - name: Install dependencies
-        shell: sh
         run: npm ci
 
-      - name: Mask a demo secret (::add-mask::)
-        shell: sh
-        run: |
-          FAKE_TOKEN="super-secret-123"
-          echo "::add-mask::$FAKE_TOKEN"
-          echo "Token in logs is now: $FAKE_TOKEN"   # prints ***
-
-      - name: Run unit tests
-        shell: sh
+      - name: Run unit tests with coverage
         run: |
           echo "::group::Jest unit tests"
-          npm run test:unit
+          npm run test:unit -- --coverage --coverageDirectory=coverage
           echo "::endgroup::"
 
       - name: Capture job outputs
-        shell: sh
         id: meta
         run: |
           echo "node_version=$(node --version)" >> "$GITHUB_OUTPUT"
           echo "tested_sha=${{ github.sha }}"    >> "$GITHUB_OUTPUT"
-          echo "result=passed"                   >> "$GITHUB_OUTPUT"
 
-      - name: Warn on coverage (::warning::)
-        shell: sh
-        run: echo "::warning title=Coverage::Coverage is a demo warning - job stays green"
-
-      - name: Unit test summary
-        shell: sh
-        run: |
-          {
-            echo "## Unit Tests - ${{ github.ref_name }}"
-            echo "| Item | Value |"
-            echo "|------|-------|"
-            echo "| Node | $(node --version) |"
-            echo "| Commit | ${{ github.sha }} |"
-            echo "| Result | passed |"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload coverage (test results)
+        if: always()
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: unit-coverage
+          path: app/node/coverage/
+          retention-days: 7
+          if-no-files-found: warn
 
   # ── 3) INTEGRATION TESTS ───────────────────────────────────
   integration-test:
     name: Integration Tests
-    needs: [ lint, unit-test ]
+    needs: unit-test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
     defaults:
       run:
-        shell: bash
         working-directory: app/node
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2
 
       - uses: actions/setup-node@v6
         with:
@@ -140,20 +117,163 @@ jobs:
       - name: Run integration tests
         run: |
           echo "::group::Jest integration tests"
-          npm run test:integration
+          npm run test:integration -- --reporters=default --reporters=jest-junit
           echo "::endgroup::"
+        env:
+          JEST_JUNIT_OUTPUT_DIR: test-results
+          JEST_JUNIT_OUTPUT_NAME: integration.xml
 
-      - name: Integration summary
-        run: echo "### Integration passed for ${{ needs.unit-test.outputs.tested_sha }} (Node ${{ needs.unit-test.outputs.node_version }})" >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload integration results
+        if: always()
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: integration-results
+          path: app/node/test-results/
+          retention-days: 7
+          if-no-files-found: warn
 
-      - name: Dev gate
-        if: ${{ github.ref_name == 'dev' }}
-        run: echo "Development gate passed."
+  # ── 4) SONARQUBE ANALYSIS ──────────────────────────────────
+  sonar:
+    name: SonarQube Analysis
+    needs: [unit-test, integration-test]
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+        working-directory: app/node
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 0           
+                      # full history for new-code detection
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
 
-      - name: Stage gate
-        if: ${{ github.ref_name == 'stage' }}
-        run: echo "Stage gate passed."
+      - name: Install dependencies
+        run: npm ci
 
-      - name: Main gate
-        if: ${{ github.ref_name == 'main' }}
-        run: echo "Production gate passed."
+      - name: Regenerate coverage for Sonar
+        run: npm run test:unit -- --coverage --coverageDirectory=coverage
+
+      - name: SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          projectBaseDir: app/node
+
+  # ── 5) NODE BUILD ──────────────────────────────────────────
+  build:
+    name: Node Build
+    needs: sonar
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app/node
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build application
+        run: |
+          echo "::group::Build"
+          npm run build:web
+          echo "::endgroup::"
+        env:
+          VERSION: ${{ github.run_number }}
+          RELEASE_TAG: ci-${{ github.run_number }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: web-dist-${{ github.run_number }}
+          path: app/node/dist/
+          retention-days: 7
+          if-no-files-found: error
+
+  # ── 6) TRIVY SCAN ON THE BUILD ─────────────────────────────
+  trivy-scan:
+    name: Trivy Scan (Build)
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4.1.8
+        with:
+          name: web-dist-${{ github.run_number }}
+          path: build-to-scan
+
+      - name: Trivy scan of the built artifact
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: build-to-scan            # scans the BUILD, not source
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+
+      - name: Trivy summary
+        if: always()
+        run: echo "### Trivy scanned build web-dist-${{ github.run_number }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ── 7) COLLECT TEST RESULTS + BUILD ARTIFACTS ──────────────
+  publish-artifacts:
+    name: Publish Artifacts
+    needs: [unit-test, integration-test, build, trivy-scan]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4.1.8
+        with:
+          path: all-artifacts
+
+      - name: Repackage as a single bundle
+        run: |
+          mkdir -p ci-bundle
+          cp -r all-artifacts/* ci-bundle/ || true
+          ls -R ci-bundle
+
+      - name: Upload combined CI bundle
+        uses: actions/upload-artifact@v4.4.3
+        with:
+          name: ci-bundle-${{ github.run_number }}
+          path: ci-bundle/
+          retention-days: 14
+          if-no-files-found: warn
+          
+      - name: Final summary
+        if: always()
+        run: |
+          {
+            echo "# CI Bundle - ${{ github.ref_name }} (run ${{ github.run_number }})"
+            echo "- Unit coverage"
+            echo "- Integration results"
+            echo "- Build artifact (web-dist)"
+            echo "- Trivy scan passed on the build"
+          } >> "$GITHUB_STEP_SUMMARY"
