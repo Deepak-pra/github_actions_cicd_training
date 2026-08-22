@@ -1,4 +1,4 @@
-name: Node CI - Complete Free Quality Gates
+name: Node CI - Build and Scan Actual Artifact
 
 on:
   push:
@@ -6,7 +6,6 @@ on:
     paths:
       - "app/node/**"
       - ".github/workflows/node-branch-conditions.yml"
-      - "!.github/workflows/demo.yml"
 
 permissions:
   contents: read
@@ -19,7 +18,9 @@ env:
   NODE_VERSION: "24"
 
 jobs:
-  # ── 1) LINT ────────────────────────────────────────────────
+  # ==========================================================
+  # 1. LINT
+  # ==========================================================
   lint:
     name: Lint
 
@@ -54,8 +55,6 @@ jobs:
         run: |
           echo "::group::ESLint"
 
-          echo "::notice title=Lint::Running ESLint on ${{ github.ref_name }}"
-
           npm run lint
 
           echo "::endgroup::"
@@ -66,7 +65,9 @@ jobs:
           echo "### Lint result: ${{ job.status }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 2) DEPENDENCY AUDIT / SCA ──────────────────────────────
+  # ==========================================================
+  # 2. SOFTWARE COMPOSITION ANALYSIS
+  # ==========================================================
   security-sca:
     name: Dependency Audit
 
@@ -97,7 +98,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Run npm dependency audit
+      - name: Audit npm dependencies
         run: |
           echo "::group::npm audit"
 
@@ -111,9 +112,12 @@ jobs:
           echo "### npm audit result: ${{ job.status }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 3) SAST: CODEQL ────────────────────────────────────────
-  # Free for public repositories.
-  # Automatically skipped for private repositories.
+  # ==========================================================
+  # 3. CODEQL SAST
+  #
+  # CodeQL runs only for a public repository.
+  # It is skipped automatically for a private repository.
+  # ==========================================================
   codeql:
     name: SAST - CodeQL
 
@@ -142,7 +146,9 @@ jobs:
         with:
           category: "/language:javascript-typescript"
 
-  # ── 4) UNIT TESTS ──────────────────────────────────────────
+  # ==========================================================
+  # 4. UNIT TESTS AND COVERAGE
+  # ==========================================================
   unit-test:
     name: Unit Tests
 
@@ -200,7 +206,7 @@ jobs:
           echo "tested_sha=${{ github.sha }}" \
             >> "$GITHUB_OUTPUT"
 
-      - name: Upload unit-test coverage
+      - name: Upload unit coverage
         if: always()
 
         uses: actions/upload-artifact@v7.0.1
@@ -215,6 +221,7 @@ jobs:
         run: |
           {
             echo "## Unit Tests"
+            echo ""
             echo "| Item | Value |"
             echo "|---|---|"
             echo "| Result | ${{ job.status }} |"
@@ -222,7 +229,9 @@ jobs:
             echo "| Commit | ${{ github.sha }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 5) INTEGRATION TESTS ───────────────────────────────────
+  # ==========================================================
+  # 5. INTEGRATION TESTS AND JUNIT XML
+  # ==========================================================
   integration-test:
     name: Integration Tests
 
@@ -262,7 +271,7 @@ jobs:
         run: |
           echo "Running integration tests for branch $BRANCH_NAME"
 
-      - name: Run integration tests and create JUnit report
+      - name: Run integration tests with JUnit XML
         run: |
           echo "::group::Jest integration tests"
 
@@ -276,7 +285,7 @@ jobs:
           JEST_JUNIT_OUTPUT_DIR: test-results
           JEST_JUNIT_OUTPUT_NAME: integration.xml
 
-      - name: Upload integration-test results
+      - name: Upload integration results
         if: always()
 
         uses: actions/upload-artifact@v7.0.1
@@ -292,7 +301,9 @@ jobs:
           echo "### Integration-test result: ${{ job.status }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 6) SONARQUBE ANALYSIS ──────────────────────────────────
+  # ==========================================================
+  # 6. SONARQUBE CLOUD ANALYSIS
+  # ==========================================================
   sonar:
     name: SonarQube Analysis
 
@@ -319,7 +330,27 @@ jobs:
           name: unit-coverage-${{ github.run_id }}
           path: app/node/coverage
 
-      - name: Run SonarQube analysis
+      - name: Verify SonarQube inputs
+        shell: bash
+        run: |
+          echo "::group::SonarQube input verification"
+
+          echo "Project configuration:"
+          ls -la app/node/sonar-project.properties
+
+          echo "Project identification:"
+          grep -E "^sonar\.(projectKey|organization)=" \
+            app/node/sonar-project.properties
+
+          echo "LCOV coverage:"
+          ls -la app/node/coverage/lcov.info
+
+          echo "::endgroup::"
+
+          test -f app/node/sonar-project.properties
+          test -f app/node/coverage/lcov.info
+
+      - name: Run SonarQube Cloud analysis
         uses: SonarSource/sonarqube-scan-action@v8.2.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -329,20 +360,24 @@ jobs:
 
       - name: SonarQube summary
         if: always()
+        shell: bash
         run: |
           echo "### SonarQube analysis result: ${{ job.status }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 7) NODE BUILD ──────────────────────────────────────────
+  # ==========================================================
+  # 7. GENERATE THE ACTUAL WEB ARTIFACT
+  #
+  # dist/web does not need to exist in Git.
+  # npm run build:web generates it during this job.
+  # ==========================================================
   build:
-    name: Node Build
+    name: Generate Web Artifact
 
     needs:
       - sonar
       - codeql
 
-    # CodeQL is skipped on private repositories.
-    # Build accepts CodeQL success or an intentional skip.
     if: >-
       ${{
         always() &&
@@ -380,9 +415,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Build application
+      - name: Generate dist web artifact
         run: |
-          echo "::group::Node build"
+          echo "::group::Generate web artifact"
 
           npm run build:web
 
@@ -391,39 +426,49 @@ jobs:
           VERSION: ${{ github.run_number }}
           RELEASE_TAG: ci-${{ github.run_number }}
 
-      # The deployable artifact remains separate.
-      # Dependency metadata is added only to the scan package
-      # so Trivy and Syft can identify dependency versions.
-      - name: Prepare build scan package
+      - name: Verify generated artifact
         run: |
-          rm -rf build-scan-package
+          test -d dist/web
+          test -f dist/web/index.html
+          test -f dist/web/version.json
+          test -f dist/web/health.json
 
-          mkdir -p build-scan-package
+          echo "::group::Generated artifact contents"
 
-          cp -R dist build-scan-package/dist
-          cp package.json package-lock.json build-scan-package/
+          find dist/web -type f -print
 
-          find build-scan-package -maxdepth 3 -type f -print
+          echo "::endgroup::"
 
-      - name: Upload deployable build artifact
+      - name: Upload exact generated artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: web-dist-${{ github.run_id }}
-          path: app/node/dist/
+          path: app/node/dist/web/
           retention-days: 7
           if-no-files-found: error
 
-      - name: Upload build scan package
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: build-scan-package-${{ github.run_id }}
-          path: app/node/build-scan-package/
-          retention-days: 7
-          if-no-files-found: error
+      - name: Build summary
+        if: always()
+        run: |
+          {
+            echo "## Generated Web Artifact"
+            echo ""
+            echo "- Artifact: web-dist-${{ github.run_id }}"
+            echo "- Source directory: app/node/dist/web"
+            echo "- Result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
 
-  # ── 8) TRIVY SCAN OF BUILT ARTIFACT ────────────────────────
+  # ==========================================================
+  # 8. TRIVY SCAN OF THE EXACT GENERATED ARTIFACT
+  #
+  # The static artifact contains HTML and JSON, not npm package
+  # metadata. Therefore Trivy scans the deployable artifact for
+  # accidentally embedded credentials and secrets.
+  #
+  # npm dependency vulnerabilities are covered by npm audit.
+  # ==========================================================
   trivy-scan:
-    name: Trivy Scan - Built Artifact
+    name: Trivy Scan - Generated Web Artifact
 
     needs:
       - build
@@ -435,32 +480,98 @@ jobs:
       contents: read
 
     steps:
-      - name: Download build scan package
+      - name: Download exact generated artifact
         uses: actions/download-artifact@v8.0.1
         with:
-          name: build-scan-package-${{ github.run_id }}
-          path: build-to-scan
+          name: web-dist-${{ github.run_id }}
+          path: generated-artifact
 
-      - name: Scan built artifact with Trivy
+      - name: Show artifact being scanned
+        shell: bash
+        run: |
+          echo "::group::Generated artifact"
+
+          find generated-artifact -type f -print
+
+          echo "::endgroup::"
+
+          test -f generated-artifact/index.html
+          test -f generated-artifact/version.json
+          test -f generated-artifact/health.json
+
+      # Trivy writes JSON first so the workflow can show an exact
+      # finding count and enforce the security gate explicitly.
+      - name: Scan generated artifact and write JSON report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
-          scan-ref: build-to-scan
-          scanners: vuln,secret,misconfig
-          severity: HIGH,CRITICAL
-          exit-code: "1"
-          ignore-unfixed: false
-          format: table
+          scan-ref: generated-artifact
+          scanners: secret
+          format: json
+          output: trivy-artifact-report.json
+          exit-code: "0"
+          skip-version-check: true
 
-      - name: Trivy summary
-        if: always()
+      - name: Display and summarize Trivy results
+        id: trivy_results
+        shell: bash
         run: |
-          echo "### Trivy build scan result: ${{ job.status }}" \
-            >> "$GITHUB_STEP_SUMMARY"
+          test -f trivy-artifact-report.json
 
-  # ── 9) SBOM OF BUILT ARTIFACT ──────────────────────────────
+          echo "::group::Complete Trivy JSON report"
+
+          cat trivy-artifact-report.json
+
+          echo "::endgroup::"
+
+          SECRET_COUNT=$(
+            jq '[.Results[]? | .Secrets[]?] | length' \
+              trivy-artifact-report.json
+          )
+
+          FILE_COUNT=$(
+            find generated-artifact -type f | wc -l
+          )
+
+          echo "secret_count=$SECRET_COUNT" \
+            >> "$GITHUB_OUTPUT"
+
+          echo "file_count=$FILE_COUNT" \
+            >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Trivy Generated-Artifact Scan"
+            echo ""
+            echo "| Item | Result |"
+            echo "|---|---|"
+            echo "| Artifact | web-dist-${{ github.run_id }} |"
+            echo "| Files scanned | $FILE_COUNT |"
+            echo "| Exposed secrets | $SECRET_COUNT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Trivy JSON report
+        if: always()
+
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: trivy-report-${{ github.run_id }}
+          path: trivy-artifact-report.json
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Fail when Trivy finds exposed secrets
+        if: ${{ steps.trivy_results.outputs.secret_count != '0' }}
+        shell: bash
+        run: |
+          echo "::error title=Trivy gate failed::Exposed secrets were found in the generated web artifact"
+
+          exit 1
+
+  # ==========================================================
+  # 9. SBOM OF THE SAME GENERATED ARTIFACT
+  # ==========================================================
   sbom:
-    name: SBOM - Built Artifact
+    name: SBOM - Generated Web Artifact
 
     needs:
       - build
@@ -472,16 +583,25 @@ jobs:
       contents: read
 
     steps:
-      - name: Download build scan package
+      - name: Download generated artifact
         uses: actions/download-artifact@v8.0.1
         with:
-          name: build-scan-package-${{ github.run_id }}
-          path: build-for-sbom
+          name: web-dist-${{ github.run_id }}
+          path: generated-artifact
+
+      - name: Show SBOM input
+        shell: bash
+        run: |
+          echo "::group::SBOM input"
+
+          find generated-artifact -type f -print
+
+          echo "::endgroup::"
 
       - name: Generate SPDX JSON SBOM
         uses: anchore/sbom-action@v0.24.0
         with:
-          path: build-for-sbom
+          path: generated-artifact
           format: spdx-json
           output-file: sbom.spdx.json
 
@@ -493,7 +613,21 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  # ── 10) FINAL CI EVIDENCE BUNDLE ───────────────────────────
+      - name: SBOM summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Artifact SBOM"
+            echo ""
+            echo "- Format: SPDX JSON"
+            echo "- Artifact: web-dist-${{ github.run_id }}"
+            echo "- Result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 10. FINAL CI EVIDENCE BUNDLE
+  # ==========================================================
   publish-artifacts:
     name: Publish CI Evidence Bundle
 
@@ -515,24 +649,23 @@ jobs:
       contents: read
 
     steps:
-      # Early CI failures may mean that no artifacts exist.
-      # The manifest and final status still need to be created.
-      - name: Download all workflow artifacts
+      - name: Download all available artifacts
         continue-on-error: true
 
         uses: actions/download-artifact@v8.0.1
         with:
           path: all-artifacts
 
-      - name: Create CI evidence manifest
+      - name: Create evidence manifest
+        shell: bash
         run: |
           mkdir -p ci-evidence
 
-          if [[ -d "all-artifacts" ]]; then
+          if [[ -d all-artifacts ]]; then
             cp -R all-artifacts/. ci-evidence/
           fi
 
-          cat > ci-evidence/manifest.txt <<EOF
+          cat > ci-evidence/manifest.txt <<EOF_MANIFEST
           Workflow: ${{ github.workflow }}
           Run ID: ${{ github.run_id }}
           Run number: ${{ github.run_number }}
@@ -544,13 +677,17 @@ jobs:
           SonarQube: ${{ needs.sonar.result }}
           CodeQL: ${{ needs.codeql.result }}
           Build: ${{ needs.build.result }}
-          Trivy: ${{ needs.trivy-scan.result }}
+          Trivy artifact scan: ${{ needs.trivy-scan.result }}
           SBOM: ${{ needs.sbom.result }}
-          EOF
+          EOF_MANIFEST
 
-          find ci-evidence -maxdepth 3 -type f -print
+          echo "::group::CI evidence contents"
 
-      - name: Upload combined CI evidence bundle
+          find ci-evidence -maxdepth 5 -type f -print
+
+          echo "::endgroup::"
+
+      - name: Upload CI evidence bundle
         uses: actions/upload-artifact@v7.0.1
         with:
           name: ci-evidence-${{ github.run_id }}
@@ -562,18 +699,19 @@ jobs:
         run: |
           {
             echo "# CI Pipeline Result"
+            echo ""
             echo "| Stage | Result |"
             echo "|---|---|"
             echo "| Unit Tests | ${{ needs.unit-test.result }} |"
             echo "| Integration Tests | ${{ needs.integration-test.result }} |"
             echo "| SonarQube | ${{ needs.sonar.result }} |"
-            echo "| CodeQL (public only) | ${{ needs.codeql.result }} |"
+            echo "| CodeQL | ${{ needs.codeql.result }} |"
             echo "| Build | ${{ needs.build.result }} |"
-            echo "| Trivy Build Scan | ${{ needs.trivy-scan.result }} |"
+            echo "| Trivy Artifact Scan | ${{ needs.trivy-scan.result }} |"
             echo "| SBOM | ${{ needs.sbom.result }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail final gate when a required CI stage failed
+      - name: Fail final gate when a required stage failed
         if: >-
           ${{
             needs.unit-test.result != 'success' ||
@@ -587,8 +725,8 @@ jobs:
               needs.codeql.result != 'skipped'
             )
           }}
-
+        shell: bash
         run: |
-          echo "::error title=CI Gate Failed::One or more required CI stages failed or were skipped"
+          echo "::error title=CI gate failed::One or more required stages failed or were skipped"
 
           exit 1
