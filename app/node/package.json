@@ -1,7 +1,7 @@
 {
   "name": "shipfast-node",
   "version": "1.0.0",
-  "description": "ShipFast Node.js GitHub Actions training application",
+  "description": "ShipFast Node.js GitHub Actions CI training application",
   "main": "src/server.js",
   "private": true,
   "scripts": {
