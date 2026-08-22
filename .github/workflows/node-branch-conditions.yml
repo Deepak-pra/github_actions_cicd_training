@@ -129,7 +129,7 @@ jobs:
         with:
           name: integration-results
           path: app/node/test-results/
-          retention-days: 7
+          retention-days: 2
           if-no-files-found: warn
 
   # ── 4) SONARQUBE ANALYSIS ──────────────────────────────────
@@ -143,15 +143,15 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: app/node
+        working-directory: app/nodeS
     steps:
       - uses: actions/checkout@v4.2.2
         with:
-          fetch-depth: 0           
-                      # full history for new-code detection
+          fetch-depth: 0        
+
       - uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: "20"
           cache: npm
           cache-dependency-path: app/node/package-lock.json
 
@@ -266,7 +266,7 @@ jobs:
           path: ci-bundle/
           retention-days: 14
           if-no-files-found: warn
-          
+
       - name: Final summary
         if: always()
         run: |
