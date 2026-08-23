@@ -1,0 +1,24 @@
+name: Demo2a - Producer (uploads an artifact)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  produce:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the artifact
+        run: |
+          mkdir -p dist
+          echo "artifact from workflow A, sha ${GITHUB_SHA:0:7}" > dist/app.txt
+      - name: Upload artifact (lives only in THIS workflow's run)
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: cross-demo-app
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+      - name: Note
+        run: |
+          echo "Uploaded 'cross-demo-app'. It belongs to run ${{ github.run_id }}"
+          echo "Another workflow will NOT be able to download it."
