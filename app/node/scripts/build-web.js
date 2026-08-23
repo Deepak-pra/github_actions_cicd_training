@@ -5,18 +5,31 @@ const rootDir = path.resolve(__dirname, "..");
 const distDir = path.join(rootDir, "dist");
 const webDir = path.join(distDir, "web");
 
+const packageJsonPath = path.join(rootDir, "package.json");
+
+if (!fs.existsSync(packageJsonPath)) {
+  throw new Error(`package.json was not found: ${packageJsonPath}`);
+}
+
 const packageJson = JSON.parse(
-  fs.readFileSync(path.join(rootDir, "package.json"), "utf8")
+  fs.readFileSync(packageJsonPath, "utf8")
 );
 
-const buildVersion = process.env.VERSION || packageJson.version;
-const releaseTag = process.env.RELEASE_TAG || "local-build";
-const commitSha = process.env.GITHUB_SHA || "local";
-const buildTime = new Date().toISOString();
+const buildVersion =
+  process.env.VERSION || packageJson.version || "1.0.0";
+
+const releaseTag =
+  process.env.RELEASE_TAG || "local-build";
+
+const commitSha =
+  process.env.GITHUB_SHA || "local";
+
+const buildTime =
+  new Date().toISOString();
 
 /*
- * The dist directory is generated during every build.
- * It is intentionally not committed to Git.
+ * dist is generated on every build.
+ * It does not need to exist in Git.
  */
 fs.rmSync(distDir, {
   recursive: true,
@@ -49,10 +62,17 @@ const indexHtml = `<!doctype html>
   <main>
     <h1>ShipFast Node</h1>
     <p>Build ${buildVersion}</p>
+    <p>Release ${releaseTag}</p>
     <p>Commit ${commitSha.substring(0, 7)}</p>
   </main>
 </body>
 </html>`;
+
+const healthContent = {
+  status: "ok",
+  application: packageJson.name,
+  version: buildVersion
+};
 
 fs.writeFileSync(
   path.join(webDir, "index.html"),
@@ -68,14 +88,7 @@ fs.writeFileSync(
 
 fs.writeFileSync(
   path.join(webDir, "health.json"),
-  JSON.stringify(
-    {
-      status: "ok",
-      application: packageJson.name
-    },
-    null,
-    2
-  ),
+  JSON.stringify(healthContent, null, 2),
   "utf8"
 );
 
@@ -85,16 +98,23 @@ const requiredFiles = [
   "health.json"
 ];
 
-for (const file of requiredFiles) {
-  const filePath = path.join(webDir, file);
+for (const fileName of requiredFiles) {
+  const filePath = path.join(webDir, fileName);
 
   if (!fs.existsSync(filePath)) {
-    throw new Error(`Build output is missing: ${filePath}`);
+    throw new Error(
+      `Required build output is missing: ${filePath}`
+    );
   }
 }
 
-console.log(`Build created at ${webDir}`);
+console.log(`Build created successfully: ${webDir}`);
 
-for (const file of fs.readdirSync(webDir)) {
-  console.log(`- ${file}`);
+for (const fileName of fs.readdirSync(webDir)) {
+  const filePath = path.join(webDir, fileName);
+  const fileStats = fs.statSync(filePath);
+
+  console.log(
+    `- ${fileName} (${fileStats.size} bytes)`
+  );
 }

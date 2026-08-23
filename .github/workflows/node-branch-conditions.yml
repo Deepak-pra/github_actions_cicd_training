@@ -1,4 +1,4 @@
-name: Node CI - Build and Scan Actual Artifact
+name: Node CI - Complete Quality and Security Gates
 
 on:
   pull_request:
@@ -74,10 +74,10 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 2. NODE DEPENDENCY AUDIT
+  # 2. NPM DEPENDENCY AUDIT
   # ==========================================================
   security-sca:
-    name: Dependency Audit
+    name: npm Dependency Audit
 
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -106,9 +106,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Audit npm dependencies
+      - name: Run npm dependency audit
         run: |
-          echo "::group::npm audit"
+          echo "::group::npm dependency vulnerability scan"
 
           npm audit --audit-level=high
 
@@ -117,13 +117,20 @@ jobs:
       - name: Dependency audit summary
         if: always()
         run: |
-          echo "### npm audit result: ${{ job.status }}" \
-            >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## npm Dependency Audit"
+            echo ""
+            echo "| Item | Result |"
+            echo "|---|---|"
+            echo "| Input | app/node/package-lock.json |"
+            echo "| Failure threshold | HIGH and CRITICAL |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 3. CODEQL SAST
+  # 3. CODEQL
   #
-  # This job runs only for a public repository.
+  # CodeQL is enabled only for public repositories.
   # ==========================================================
   codeql:
     name: SAST - CodeQL
@@ -213,7 +220,7 @@ jobs:
           echo "tested_sha=${{ github.sha }}" \
             >> "$GITHUB_OUTPUT"
 
-      - name: Upload unit coverage
+      - name: Upload unit-test coverage
         if: always()
 
         uses: actions/upload-artifact@v7.0.1
@@ -237,7 +244,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 5. INTEGRATION TESTS AND JUNIT XML
+  # 5. INTEGRATION TESTS
   # ==========================================================
   integration-test:
     name: Integration Tests
@@ -272,12 +279,6 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Safely expose branch context
-        env:
-          BRANCH_NAME: ${{ github.ref_name }}
-        run: |
-          echo "Running integration tests for branch $BRANCH_NAME"
-
       - name: Run integration tests with JUnit XML
         run: |
           echo "::group::Jest integration tests"
@@ -292,7 +293,7 @@ jobs:
           JEST_JUNIT_OUTPUT_DIR: test-results
           JEST_JUNIT_OUTPUT_NAME: integration.xml
 
-      - name: Upload integration results
+      - name: Upload integration-test results
         if: always()
 
         uses: actions/upload-artifact@v7.0.1
@@ -309,7 +310,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 6. SONARQUBE CLOUD ANALYSIS
+  # 6. SONARQUBE CLOUD
   # ==========================================================
   sonar:
     name: SonarQube Analysis
@@ -365,14 +366,11 @@ jobs:
       - name: SonarQube summary
         if: always()
         run: |
-          echo "### SonarQube analysis result: ${{ job.status }}" \
+          echo "### SonarQube result: ${{ job.status }}" \
             >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 7. GENERATE THE ACTUAL WEB ARTIFACT
-  #
-  # npm run build:web creates:
-  # app/node/dist/web/
+  # 7. BUILD THE ACTUAL WEB ARTIFACT
   # ==========================================================
   build:
     name: Generate Web Artifact
@@ -418,7 +416,7 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
-      - name: Generate dist web artifact
+      - name: Generate web artifact
         run: |
           echo "::group::Generate web artifact"
 
@@ -436,13 +434,13 @@ jobs:
           test -f dist/web/version.json
           test -f dist/web/health.json
 
-          echo "::group::Generated artifact contents"
+          echo "::group::Generated artifact"
 
           find dist/web -type f -print
 
           echo "::endgroup::"
 
-      - name: Upload exact generated artifact
+      - name: Upload generated artifact
         uses: actions/upload-artifact@v7.0.1
         with:
           name: web-dist-${{ github.run_id }}
@@ -456,93 +454,180 @@ jobs:
           {
             echo "## Generated Web Artifact"
             echo ""
-            echo "- Artifact: web-dist-${{ github.run_id }}"
-            echo "- Source directory: app/node/dist/web"
-            echo "- Result: ${{ job.status }}"
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Artifact | web-dist-${{ github.run_id }} |"
+            echo "| Source | app/node/dist/web |"
+            echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 8. TRIVY SCAN OF THE ACTUAL GENERATED ARTIFACT
+  # 8. TRIVY
   #
-  # npm audit covers Node dependency vulnerabilities.
-  # Trivy checks the generated HTML and JSON files for
-  # accidentally embedded secrets.
+  # Two Trivy assessments run:
+  #
+  # A. Vulnerability scan
+  #    Input: package.json and package-lock.json
+  #    Includes development dependencies because this training
+  #    project currently contains only devDependencies.
+  #
+  # B. Secret scan
+  #    Input: exact generated HTML and JSON artifact.
   # ==========================================================
   trivy-scan:
-    name: Trivy Scan - Generated Web Artifact
+    name: Trivy Scan - Artifact and Dependencies
 
     needs:
       - build
 
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     permissions:
       contents: read
 
     steps:
-      - name: Download exact generated artifact
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download generated artifact
         uses: actions/download-artifact@v8.0.1
         with:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
 
-      - name: Verify artifact downloaded for scanning
-        id: artifact_details
+      - name: Prepare Trivy scan input
+        id: scan_input
         shell: bash
         run: |
-          echo "::group::Generated artifact files"
-
-          find generated-artifact -type f -print
-
-          echo "::endgroup::"
-
-          test -d generated-artifact
           test -f generated-artifact/index.html
           test -f generated-artifact/version.json
           test -f generated-artifact/health.json
 
-          FILE_COUNT=$(
-            find generated-artifact -type f | wc -l
+          test -f app/node/package.json
+          test -f app/node/package-lock.json
+
+          rm -rf artifact-security-input
+
+          mkdir -p artifact-security-input/artifact
+          mkdir -p artifact-security-input/dependency-metadata
+
+          cp -R generated-artifact/. \
+            artifact-security-input/artifact/
+
+          cp app/node/package.json \
+            artifact-security-input/dependency-metadata/
+
+          cp app/node/package-lock.json \
+            artifact-security-input/dependency-metadata/
+
+          ARTIFACT_FILE_COUNT=$(
+            find artifact-security-input/artifact \
+              -type f |
+              wc -l
           )
 
-          echo "file_count=$FILE_COUNT" \
+          echo "artifact_file_count=$ARTIFACT_FILE_COUNT" \
             >> "$GITHUB_OUTPUT"
 
-          echo "Artifact contains $FILE_COUNT files."
+          echo "::group::Trivy scan input"
 
-      - name: Scan generated artifact and write JSON report
-        uses: aquasecurity/trivy-action@v0.36.0
+          find artifact-security-input -type f -print
+
+          echo "::endgroup::"
+
+      # setup-trivy v0.3.1 is the corrected release.
+      # v0.3.0 is documented as broken by its publisher.
+      - name: Install Trivy CLI
+        uses: aquasecurity/setup-trivy@v0.3.1
         with:
-          scan-type: fs
-          scan-ref: generated-artifact
-          scanners: secret
-          format: json
-          output: trivy-artifact-report.json
-          exit-code: "0"
+          version: v0.74.0
+          cache: true
 
-      - name: Verify Trivy report was generated
+      # ------------------------------------------------------
+      # Dependency vulnerability table
+      # ------------------------------------------------------
+      - name: Scan dependencies for vulnerabilities - table
         shell: bash
         run: |
-          if [[ ! -f "trivy-artifact-report.json" ]]; then
-            echo "::error title=Trivy report missing::Trivy did not generate trivy-artifact-report.json"
+          trivy fs \
+            --scanners vuln \
+            --include-dev-deps \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --output trivy-vulnerability-table.txt \
+            --exit-code 0 \
+            artifact-security-input/dependency-metadata
 
-            exit 1
-          fi
+          echo "::group::Trivy vulnerability table"
 
-          echo "Trivy report generated:"
+          cat trivy-vulnerability-table.txt
 
-          ls -lh trivy-artifact-report.json
+          echo "::endgroup::"
 
-      - name: Display and summarize Trivy results
+      # JSON is also produced so the workflow can count
+      # vulnerabilities and enforce the security gate.
+      - name: Create vulnerability JSON report
+        shell: bash
+        run: |
+          trivy fs \
+            --scanners vuln \
+            --include-dev-deps \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output trivy-vulnerability-report.json \
+            --exit-code 0 \
+            artifact-security-input/dependency-metadata
+
+      # ------------------------------------------------------
+      # Generated-artifact secret table
+      # ------------------------------------------------------
+      - name: Scan generated artifact for secrets - table
+        shell: bash
+        run: |
+          trivy fs \
+            --scanners secret \
+            --format table \
+            --output trivy-secret-table.txt \
+            --exit-code 0 \
+            artifact-security-input/artifact
+
+          echo "::group::Trivy secret table"
+
+          cat trivy-secret-table.txt
+
+          echo "::endgroup::"
+
+      - name: Create secret JSON report
+        shell: bash
+        run: |
+          trivy fs \
+            --scanners secret \
+            --format json \
+            --output trivy-secret-report.json \
+            --exit-code 0 \
+            artifact-security-input/artifact
+
+      - name: Summarize Trivy results
         id: trivy_results
         shell: bash
         run: |
-          echo "::group::Complete Trivy JSON report"
+          test -f trivy-vulnerability-table.txt
+          test -f trivy-vulnerability-report.json
+          test -f trivy-secret-table.txt
+          test -f trivy-secret-report.json
 
-          cat trivy-artifact-report.json
-
-          echo "::endgroup::"
+          VULNERABILITY_COUNT=$(
+            jq '
+              [
+                .Results[]?
+                | .Vulnerabilities[]?
+              ]
+              | length
+            ' trivy-vulnerability-report.json
+          )
 
           SECRET_COUNT=$(
             jq '
@@ -551,59 +636,80 @@ jobs:
                 | .Secrets[]?
               ]
               | length
-            ' trivy-artifact-report.json
+            ' trivy-secret-report.json
           )
 
-          if [[ -z "$SECRET_COUNT" ]] ||
-             ! [[ "$SECRET_COUNT" =~ ^[0-9]+$ ]]; then
-
-            echo "::error title=Invalid Trivy report::Unable to calculate the secret finding count"
-
+          if ! [[ "$VULNERABILITY_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "::error title=Invalid vulnerability report::Unable to calculate the vulnerability count"
             exit 1
           fi
+
+          if ! [[ "$SECRET_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "::error title=Invalid secret report::Unable to calculate the secret count"
+            exit 1
+          fi
+
+          echo "vulnerability_count=$VULNERABILITY_COUNT" \
+            >> "$GITHUB_OUTPUT"
 
           echo "secret_count=$SECRET_COUNT" \
             >> "$GITHUB_OUTPUT"
 
           {
-            echo "## Trivy Generated-Artifact Scan"
+            echo "## Trivy Security Scan"
             echo ""
-            echo "| Item | Result |"
-            echo "|---|---|"
-            echo "| Artifact | web-dist-${{ github.run_id }} |"
-            echo "| Scan target | generated-artifact |"
-            echo "| Scanner | Secret detection |"
-            echo "| Files scanned | ${{ steps.artifact_details.outputs.file_count }} |"
-            echo "| Exposed secrets | $SECRET_COUNT |"
-            echo "| Report | trivy-artifact-report.json |"
+            echo "| Check | Target | Findings |"
+            echo "|---|---|---:|"
+            echo "| HIGH/CRITICAL dependency vulnerabilities | package-lock.json, including dev dependencies | $VULNERABILITY_COUNT |"
+            echo "| Exposed secrets | Generated web artifact | $SECRET_COUNT |"
+            echo "| Generated artifact files | app/node/dist/web | ${{ steps.scan_input.outputs.artifact_file_count }} |"
+            echo ""
+            echo "The vulnerability table evaluates dependency metadata associated with the build."
+            echo ""
+            echo "The secret table evaluates the exact generated HTML and JSON artifact."
           } >> "$GITHUB_STEP_SUMMARY"
 
-          if [[ "$SECRET_COUNT" -eq 0 ]]; then
-            echo "::notice title=Trivy scan passed::No exposed secrets were detected in the generated artifact"
+          if [[ "$VULNERABILITY_COUNT" -eq 0 ]]; then
+            echo "::notice title=Trivy vulnerability scan passed::No HIGH or CRITICAL dependency vulnerabilities were detected"
           else
-            echo "::error title=Trivy findings detected::$SECRET_COUNT exposed secret finding(s) detected"
+            echo "::error title=Trivy vulnerabilities detected::$VULNERABILITY_COUNT HIGH or CRITICAL vulnerability finding(s) detected"
           fi
 
-      - name: Upload Trivy JSON report
+          if [[ "$SECRET_COUNT" -eq 0 ]]; then
+            echo "::notice title=Trivy secret scan passed::No exposed secrets were detected in the generated artifact"
+          else
+            echo "::error title=Trivy secrets detected::$SECRET_COUNT exposed secret finding(s) detected"
+          fi
+
+      - name: Upload Trivy reports
         if: always()
 
         uses: actions/upload-artifact@v7.0.1
         with:
-          name: trivy-report-${{ github.run_id }}
-          path: trivy-artifact-report.json
+          name: trivy-reports-${{ github.run_id }}
+          path: |
+            trivy-vulnerability-table.txt
+            trivy-vulnerability-report.json
+            trivy-secret-table.txt
+            trivy-secret-report.json
           retention-days: 7
           if-no-files-found: error
 
-      - name: Fail when Trivy finds exposed secrets
-        if: ${{ steps.trivy_results.outputs.secret_count != '0' }}
+      - name: Fail Trivy security gate
+        if: >-
+          ${{
+            steps.trivy_results.outputs.vulnerability_count != '0' ||
+            steps.trivy_results.outputs.secret_count != '0'
+          }}
+
         shell: bash
         run: |
-          echo "::error title=Trivy gate failed::Exposed secrets were found in the generated web artifact"
+          echo "::error title=Trivy security gate failed::HIGH/CRITICAL vulnerabilities or exposed secrets were detected"
 
           exit 1
 
   # ==========================================================
-  # 9. SBOM OF THE SAME GENERATED ARTIFACT
+  # 9. SBOM
   # ==========================================================
   sbom:
     name: SBOM - Generated Web Artifact
@@ -624,15 +730,6 @@ jobs:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
 
-      - name: Show SBOM input
-        shell: bash
-        run: |
-          echo "::group::SBOM input"
-
-          find generated-artifact -type f -print
-
-          echo "::endgroup::"
-
       - name: Generate SPDX JSON SBOM
         uses: anchore/sbom-action@v0.24.0
         with:
@@ -640,7 +737,7 @@ jobs:
           format: spdx-json
           output-file: sbom.spdx.json
 
-      - name: Upload SBOM artifact
+      - name: Upload SBOM
         uses: actions/upload-artifact@v7.0.1
         with:
           name: sbom-${{ github.run_id }}
@@ -654,13 +751,15 @@ jobs:
           {
             echo "## Artifact SBOM"
             echo ""
-            echo "- Format: SPDX JSON"
-            echo "- Artifact: web-dist-${{ github.run_id }}"
-            echo "- Result: ${{ job.status }}"
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Format | SPDX JSON |"
+            echo "| Artifact | web-dist-${{ github.run_id }} |"
+            echo "| Result | ${{ job.status }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 10. FINAL CI EVIDENCE BUNDLE
+  # 10. CI EVIDENCE BUNDLE
   # ==========================================================
   publish-artifacts:
     name: Publish CI Evidence Bundle
@@ -711,13 +810,13 @@ jobs:
           SonarQube: ${{ needs.sonar.result }}
           CodeQL: ${{ needs.codeql.result }}
           Build: ${{ needs.build.result }}
-          Trivy artifact scan: ${{ needs.trivy-scan.result }}
+          Trivy: ${{ needs.trivy-scan.result }}
           SBOM: ${{ needs.sbom.result }}
           EOF_MANIFEST
 
           echo "::group::CI evidence contents"
 
-          find ci-evidence -maxdepth 5 -type f -print
+          find ci-evidence -maxdepth 6 -type f -print
 
           echo "::endgroup::"
 
@@ -741,11 +840,11 @@ jobs:
             echo "| SonarQube | ${{ needs.sonar.result }} |"
             echo "| CodeQL | ${{ needs.codeql.result }} |"
             echo "| Build | ${{ needs.build.result }} |"
-            echo "| Trivy Artifact Scan | ${{ needs.trivy-scan.result }} |"
+            echo "| Trivy | ${{ needs.trivy-scan.result }} |"
             echo "| SBOM | ${{ needs.sbom.result }} |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Fail final gate when a required stage failed
+      - name: Fail final CI gate
         if: >-
           ${{
             needs.unit-test.result != 'success' ||
@@ -762,6 +861,6 @@ jobs:
 
         shell: bash
         run: |
-          echo "::error title=CI gate failed::One or more required stages failed or were skipped"
+          echo "::error title=CI gate failed::One or more required CI stages failed or were skipped"
 
           exit 1
