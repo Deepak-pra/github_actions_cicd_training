@@ -1,11 +1,19 @@
 name: Node CI - Build and Scan Actual Artifact
 
 on:
+  pull_request:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/node-branch-conditions.yml"
+
   push:
     branches: [dev, stage, main]
     paths:
       - "app/node/**"
       - ".github/workflows/node-branch-conditions.yml"
+
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -66,7 +74,7 @@ jobs:
             >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 2. SOFTWARE COMPOSITION ANALYSIS
+  # 2. NODE DEPENDENCY AUDIT
   # ==========================================================
   security-sca:
     name: Dependency Audit
@@ -115,8 +123,7 @@ jobs:
   # ==========================================================
   # 3. CODEQL SAST
   #
-  # CodeQL runs only for a public repository.
-  # It is skipped automatically for a private repository.
+  # This job runs only for a public repository.
   # ==========================================================
   codeql:
     name: SAST - CodeQL
@@ -333,16 +340,13 @@ jobs:
       - name: Verify SonarQube inputs
         shell: bash
         run: |
-          echo "::group::SonarQube input verification"
+          echo "::group::SonarQube inputs"
 
-          echo "Project configuration:"
           ls -la app/node/sonar-project.properties
 
-          echo "Project identification:"
           grep -E "^sonar\.(projectKey|organization)=" \
             app/node/sonar-project.properties
 
-          echo "LCOV coverage:"
           ls -la app/node/coverage/lcov.info
 
           echo "::endgroup::"
@@ -360,7 +364,6 @@ jobs:
 
       - name: SonarQube summary
         if: always()
-        shell: bash
         run: |
           echo "### SonarQube analysis result: ${{ job.status }}" \
             >> "$GITHUB_STEP_SUMMARY"
@@ -368,8 +371,8 @@ jobs:
   # ==========================================================
   # 7. GENERATE THE ACTUAL WEB ARTIFACT
   #
-  # dist/web does not need to exist in Git.
-  # npm run build:web generates it during this job.
+  # npm run build:web creates:
+  # app/node/dist/web/
   # ==========================================================
   build:
     name: Generate Web Artifact
@@ -459,13 +462,11 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   # ==========================================================
-  # 8. TRIVY SCAN OF THE EXACT GENERATED ARTIFACT
+  # 8. TRIVY SCAN OF THE ACTUAL GENERATED ARTIFACT
   #
-  # The static artifact contains HTML and JSON, not npm package
-  # metadata. Therefore Trivy scans the deployable artifact for
-  # accidentally embedded credentials and secrets.
-  #
-  # npm dependency vulnerabilities are covered by npm audit.
+  # npm audit covers Node dependency vulnerabilities.
+  # Trivy checks the generated HTML and JSON files for
+  # accidentally embedded secrets.
   # ==========================================================
   trivy-scan:
     name: Trivy Scan - Generated Web Artifact
@@ -486,21 +487,30 @@ jobs:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
 
-      - name: Show artifact being scanned
+      - name: Verify artifact downloaded for scanning
+        id: artifact_details
         shell: bash
         run: |
-          echo "::group::Generated artifact"
+          echo "::group::Generated artifact files"
 
           find generated-artifact -type f -print
 
           echo "::endgroup::"
 
+          test -d generated-artifact
           test -f generated-artifact/index.html
           test -f generated-artifact/version.json
           test -f generated-artifact/health.json
 
-      # Trivy writes JSON first so the workflow can show an exact
-      # finding count and enforce the security gate explicitly.
+          FILE_COUNT=$(
+            find generated-artifact -type f | wc -l
+          )
+
+          echo "file_count=$FILE_COUNT" \
+            >> "$GITHUB_OUTPUT"
+
+          echo "Artifact contains $FILE_COUNT files."
+
       - name: Scan generated artifact and write JSON report
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -510,14 +520,24 @@ jobs:
           format: json
           output: trivy-artifact-report.json
           exit-code: "0"
-          skip-version-check: true
+
+      - name: Verify Trivy report was generated
+        shell: bash
+        run: |
+          if [[ ! -f "trivy-artifact-report.json" ]]; then
+            echo "::error title=Trivy report missing::Trivy did not generate trivy-artifact-report.json"
+
+            exit 1
+          fi
+
+          echo "Trivy report generated:"
+
+          ls -lh trivy-artifact-report.json
 
       - name: Display and summarize Trivy results
         id: trivy_results
         shell: bash
         run: |
-          test -f trivy-artifact-report.json
-
           echo "::group::Complete Trivy JSON report"
 
           cat trivy-artifact-report.json
@@ -525,18 +545,24 @@ jobs:
           echo "::endgroup::"
 
           SECRET_COUNT=$(
-            jq '[.Results[]? | .Secrets[]?] | length' \
-              trivy-artifact-report.json
+            jq '
+              [
+                .Results[]?
+                | .Secrets[]?
+              ]
+              | length
+            ' trivy-artifact-report.json
           )
 
-          FILE_COUNT=$(
-            find generated-artifact -type f | wc -l
-          )
+          if [[ -z "$SECRET_COUNT" ]] ||
+             ! [[ "$SECRET_COUNT" =~ ^[0-9]+$ ]]; then
+
+            echo "::error title=Invalid Trivy report::Unable to calculate the secret finding count"
+
+            exit 1
+          fi
 
           echo "secret_count=$SECRET_COUNT" \
-            >> "$GITHUB_OUTPUT"
-
-          echo "file_count=$FILE_COUNT" \
             >> "$GITHUB_OUTPUT"
 
           {
@@ -545,9 +571,18 @@ jobs:
             echo "| Item | Result |"
             echo "|---|---|"
             echo "| Artifact | web-dist-${{ github.run_id }} |"
-            echo "| Files scanned | $FILE_COUNT |"
+            echo "| Scan target | generated-artifact |"
+            echo "| Scanner | Secret detection |"
+            echo "| Files scanned | ${{ steps.artifact_details.outputs.file_count }} |"
             echo "| Exposed secrets | $SECRET_COUNT |"
+            echo "| Report | trivy-artifact-report.json |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$SECRET_COUNT" -eq 0 ]]; then
+            echo "::notice title=Trivy scan passed::No exposed secrets were detected in the generated artifact"
+          else
+            echo "::error title=Trivy findings detected::$SECRET_COUNT exposed secret finding(s) detected"
+          fi
 
       - name: Upload Trivy JSON report
         if: always()
@@ -615,7 +650,6 @@ jobs:
 
       - name: SBOM summary
         if: always()
-        shell: bash
         run: |
           {
             echo "## Artifact SBOM"
@@ -692,7 +726,7 @@ jobs:
         with:
           name: ci-evidence-${{ github.run_id }}
           path: ci-evidence/
-          retention-days: 2
+          retention-days: 14
           if-no-files-found: error
 
       - name: Write final CI summary
@@ -725,6 +759,7 @@ jobs:
               needs.codeql.result != 'skipped'
             )
           }}
+
         shell: bash
         run: |
           echo "::error title=CI gate failed::One or more required stages failed or were skipped"
