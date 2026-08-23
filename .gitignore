@@ -6,39 +6,42 @@ node_modules/
 **/node_modules/
 
 # ============================================================
-# Test coverage and test-result output
+# Generated coverage and test reports
 # ============================================================
 
 coverage/
 **/coverage/
 
 /app/node/coverage/
-/app/node/test-results/
 
 test-results/
 **/test-results/
 
+/app/node/test-results/
+
 # ============================================================
-# Build output
+# Generated build output
 # ============================================================
 
 dist/
 **/dist/
 
 /app/node/dist/
-/app/node/build-scan-package/
 
 build-scan-package/
+**/build-scan-package/
+
+/app/node/build-scan-package/
 
 # ============================================================
-# SonarQube scanner output
+# SonarQube generated output
 # ============================================================
 
 .scannerwork/
 **/.scannerwork/
 
 # ============================================================
-# Security and generated reports
+# Generated security and evidence files
 # ============================================================
 
 trivy-*.json
@@ -59,11 +62,11 @@ yarn-debug.log*
 yarn-error.log*
 
 # ============================================================
-# Operating-system and editor files
+# IDE and operating-system files
 # ============================================================
-
-.DS_Store
-Thumbs.db
 
 .vscode/
 .idea/
+
+.DS_Store
+Thumbs.db
