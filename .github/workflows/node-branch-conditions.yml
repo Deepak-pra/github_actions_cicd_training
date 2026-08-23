@@ -197,29 +197,68 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+    # ==========================================================
+  # 6. SONARQUBE CLOUD ANALYSIS
+  #
+  # Combined Jest coverage is generated in unit-test,
+  # uploaded as unit-coverage-<run-id>, and downloaded here.
+  #
+  # The SonarCloud GitHub check reports the Quality Gate.
+  # Do not enable scanner-side Quality Gate polling.
+  # ==========================================================
   sonar:
     name: SonarQube Analysis
-    needs: [unit-test, integration-test]
+
+    needs:
+      - unit-test
+      - integration-test
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository with full history
+        uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
           persist-credentials: false
-      - uses: actions/download-artifact@v8.0.1
+
+      - name: Download combined coverage
+        uses: actions/download-artifact@v8.0.1
         with:
           name: unit-coverage-${{ github.run_id }}
           path: app/node/coverage
+
       - name: Verify SonarQube inputs and LCOV mappings
         shell: bash
         run: |
           test -f app/node/sonar-project.properties
           test -f app/node/coverage/lcov.info
-          echo "::group::LCOV source records"
-          grep "^SF:" app/node/coverage/lcov.info | sort | uniq
+
+          echo "::group::SonarQube project configuration"
+
+          grep -E "^sonar\.(projectKey|organization|projectName|javascript\.lcov\.reportPaths)=" \
+            app/node/sonar-project.properties
+
           echo "::endgroup::"
-          grep -q "^SF:" app/node/coverage/lcov.info
+
+          echo "::group::LCOV source records"
+
+          grep "^SF:" \
+            app/node/coverage/lcov.info \
+            | sort \
+            | uniq
+
+          echo "::endgroup::"
+
+          if ! grep -q "^SF:" app/node/coverage/lcov.info; then
+            echo "::error title=Invalid LCOV report::No source-file records were found"
+            exit 1
+          fi
+
       - name: Run SonarQube Cloud analysis
         uses: SonarSource/sonarqube-scan-action@v8.2.1
         env:
@@ -228,6 +267,22 @@ jobs:
         with:
           projectBaseDir: app/node
 
+      - name: SonarQube summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## SonarQube Cloud Analysis"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Scan submission | ${{ job.status }} |"
+            echo "| Coverage artifact | unit-coverage-${{ github.run_id }} |"
+            echo "| LCOV path | app/node/coverage/lcov.info |"
+            echo "| Commit | ${{ github.sha }} |"
+            echo ""
+            echo "The SonarCloud pull-request check reports the Quality Gate result."
+        
   build:
     name: Generate Web Artifact
     needs: [sonar, codeql]
