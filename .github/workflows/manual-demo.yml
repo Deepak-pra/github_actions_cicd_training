@@ -33,7 +33,7 @@ jobs:
 
     steps:
       - name: Checkout selected branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up selected Node.js version
         uses: actions/setup-node@v6
