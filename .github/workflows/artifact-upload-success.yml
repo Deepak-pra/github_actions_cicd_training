@@ -1,0 +1,125 @@
+name: Artifact Upload - Success
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build and publish release artifact
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Build the artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+
+          {
+            echo "Application: ShipFast"
+            echo "Source workflow: ${{ github.workflow }}"
+            echo "Source run ID: ${{ github.run_id }}"
+            echo "Commit SHA: ${{ github.sha }}"
+            echo "Short SHA: ${GITHUB_SHA:0:7}"
+            echo "Generated at: $(date -u)"
+          } > dist/app.txt
+
+          echo "::group::Generated build artifact"
+
+          cat dist/app.txt
+
+          echo "::endgroup::"
+
+          (
+            cd dist
+            zip -q app.zip app.txt
+          )
+
+          echo "::group::Packaged artifact"
+
+          find dist -maxdepth 2 -type f -print
+          ls -lh dist/app.zip
+
+          echo "::endgroup::"
+
+      - name: Publish artifact as a GitHub Release
+        id: publish_release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="app-1.0.0-${GITHUB_SHA:0:7}"
+
+          echo "release_tag=$TAG" \
+            >> "$GITHUB_OUTPUT"
+
+          echo "Publishing release: $TAG"
+
+          # Keep repeat demonstrations clean.
+          # If the same commit is demonstrated again,
+          # remove the previous release and recreate it.
+          gh release delete "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --cleanup-tag \
+            --yes \
+            || true
+
+          gh release create "$TAG" \
+            dist/app.zip \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$TAG" \
+            --notes "Cross-workflow artifact demo for commit ${GITHUB_SHA:0:7}" \
+            --prerelease
+
+          echo "Published release: $TAG"
+
+      - name: Verify published release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.publish_release.outputs.release_tag }}"
+
+          echo "::group::Published release information"
+
+          gh release view "$TAG" \
+            --repo "$GITHUB_REPOSITORY"
+
+          echo "::endgroup::"
+
+      - name: Write producer summary
+        shell: bash
+        run: |
+          {
+            echo "# Release Producer"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Workflow | ${{ github.workflow }} |"
+            echo "| Workflow run ID | ${{ github.run_id }} |"
+            echo "| Commit | ${{ github.sha }} |"
+            echo "| Release tag | ${{ steps.publish_release.outputs.release_tag }} |"
+            echo "| Release asset | app.zip |"
+            echo "| Result | Published successfully |"
+            echo ""
+            echo "The consumer workflow will start automatically after this workflow completes successfully."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain expected consumer behavior
+        shell: bash
+        run: |
+          echo "::notice title=Release published::The release artifact is now available to other workflows"
+
+          echo "Release tag:"
+          echo "${{ steps.publish_release.outputs.release_tag }}"
+
+          echo ""
+          echo "The consumer workflow will use the same tag"
+          echo "to download the same app.zip artifact."

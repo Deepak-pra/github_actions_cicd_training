@@ -1,7 +1,8 @@
 {
   "env": {
     "node": true,
-    "es2022": true
+    "es2022": true,
+    "jest": true
   },
   "extends": [
     "eslint:recommended"
@@ -24,6 +25,6 @@
     "node_modules/",
     "coverage/",
     "dist/",
-    "__tests__/"
+    "test-results/"
   ]
 }

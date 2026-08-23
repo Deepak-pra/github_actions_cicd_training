@@ -1,0 +1,12 @@
+{
+  "app": "shipfast-node",
+  "package_version": "1.0.0",
+  "build_version": "1.0.0",
+  "release_tag": "local-build",
+  "commit_sha": "local",
+  "short_sha": "local",
+  "artifact_type": "s3-static-web",
+  "deployment_target": "amazon-s3-static-website",
+  "note": "Generated during CI. CD workflow can enrich this with environment-specific deployment metadata.",
+  "generated_at": "2026-08-22T17:57:36.363Z"
+}

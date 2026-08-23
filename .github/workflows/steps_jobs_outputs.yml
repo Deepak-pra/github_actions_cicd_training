@@ -1,0 +1,55 @@
+name: Demo4 - Step vs Job Outputs (Pipeline Flow)
+on:
+  workflow_dispatch:
+    inputs:
+      run_deploy:
+        description: "Set gate to deploy or skip"
+        type: choice
+        options: ["deploy", "skip"]
+        default: "deploy"
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build - set STEP and JOB outputs
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      gate: ${{ steps.meta.outputs.gate }}
+    steps:
+      - name: STEP output - compute a version
+        id: meta
+        run: |
+          echo "version=1.0.0-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "gate=${{ inputs.run_deploy }}" >> "$GITHUB_OUTPUT"
+      - name: Same job reads the STEP output
+        run: |
+          echo "In-job read of step output: ${{ steps.meta.outputs.version }}"
+
+  test:
+    name: Test - reads the JOB output
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read the build JOB output via needs
+        run: |
+          echo "test sees version = ${{ needs.build.outputs.version }}"
+
+  deploy:
+    name: Deploy - runs ONLY when gate == deploy
+    needs: build
+    if: ${{ needs.build.outputs.gate == 'deploy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy using the shared version
+        run: |
+          echo "Deploying ${{ needs.build.outputs.version }}"
+          echo "Gate was: ${{ needs.build.outputs.gate }}"
+
+  skipped-note:
+    name: Alt - runs ONLY when gate == skip
+    needs: build
+    if: ${{ needs.build.outputs.gate == 'skip' }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Gate was skip, so deploy was bypassed."

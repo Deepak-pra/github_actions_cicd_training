@@ -1,0 +1,55 @@
+name: Demo1 - Artifacts Between Jobs (Same Workflow)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    name: Build - produce the artifact
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create a build artifact
+        run: |
+          mkdir -p dist
+          echo "ShipFast build ${GITHUB_SHA:0:7} at $(date -u)" > dist/app.txt
+          echo "Built these files:"
+          ls -la dist
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: app-build-${{ github.run_id }}
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  test:
+    name: Test - reuse the SAME artifact
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the build artifact
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: app-build-${{ github.run_id }}
+          path: dist/
+      - name: Prove it is the same file
+        run: |
+          echo "Downloaded in the TEST job:"
+          cat dist/app.txt
+
+  package:
+    name: Package - reuse it again
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the build artifact
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: app-build-${{ github.run_id }}
+          path: dist/
+      - name: Package the artifact
+        run: |
+          echo "Downloaded in the PACKAGE job:"
+          cat dist/app.txt
+          (cd dist && zip -q app.zip app.txt)
+          echo "Packaged:"; ls -la dist
