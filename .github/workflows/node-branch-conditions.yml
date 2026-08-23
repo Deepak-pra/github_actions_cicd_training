@@ -1,18 +1,16 @@
 name: Node CI - Complete Quality and Security Gates
 
 on:
-  pull_request:
-    branches: [dev, stage, main]
-    paths:
-      - "app/node/**"
-      - ".github/workflows/node-branch-conditions.yml"
-      - ".gitignore"
   push:
-    branches: [dev, stage, main]
+    branches:
+      - dev
+      - stage
+      - main
     paths:
       - "app/node/**"
       - ".github/workflows/node-branch-conditions.yml"
       - ".gitignore"
+
   workflow_dispatch:
 
 permissions:
@@ -26,78 +24,145 @@ env:
   NODE_VERSION: "24"
 
 jobs:
+  # ==========================================================
+  # 1. LINT
+  # ==========================================================
   lint:
     name: Lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    permissions:
+      contents: read
+
     defaults:
       run:
         shell: bash
         working-directory: app/node
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: app/node/package-lock.json
-      - run: npm ci
+
+      - name: Install locked dependencies
+        run: npm ci
+
       - name: Run ESLint
-        run: npm run lint
-      - name: Lint summary
+        run: |
+          echo "::group::ESLint"
+          npm run lint
+          echo "::endgroup::"
+
+      - name: Write lint summary
         if: always()
         run: |
           echo "### Lint result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
 
+  # ==========================================================
+  # 2. NPM DEPENDENCY AUDIT
+  # ==========================================================
   security-sca:
     name: npm Dependency Audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    permissions:
+      contents: read
+
     defaults:
       run:
         shell: bash
         working-directory: app/node
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: app/node/package-lock.json
-      - run: npm ci
+
+      - name: Install locked dependencies
+        run: npm ci
+
       - name: Run npm dependency audit
-        run: npm audit --audit-level=high
-      - name: Dependency audit summary
+        run: |
+          echo "::group::npm dependency vulnerability scan"
+          npm audit --audit-level=high
+          echo "::endgroup::"
+
+      - name: Write dependency-audit summary
         if: always()
         run: |
-          echo "### npm audit result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## npm Dependency Audit"
+            echo ""
+            echo "| Item | Result |"
+            echo "|---|---|"
+            echo "| Input | app/node/package-lock.json |"
+            echo "| Failure threshold | HIGH and CRITICAL |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
+  # ==========================================================
+  # 3. CODEQL
+  #
+  # CodeQL runs only for public repositories.
+  # Generated coverage, reports and build output must not be
+  # tracked in Git and are excluded from analysis.
+  # ==========================================================
   codeql:
     name: SAST - CodeQL
     if: ${{ github.event.repository.private == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
     permissions:
       contents: read
       security-events: write
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
+
       - name: Verify generated files are not tracked
         shell: bash
         run: |
-          TRACKED="$(git ls-files "app/node/coverage/**" "app/node/test-results/**" "app/node/dist/**" "app/node/build-scan-package/**")"
-          if [[ -n "$TRACKED" ]]; then
-            echo "$TRACKED"
+          echo "::group::Tracked generated-file check"
+
+          TRACKED_GENERATED_FILES="$(
+            git ls-files \
+              "app/node/coverage/**" \
+              "app/node/test-results/**" \
+              "app/node/dist/**" \
+              "app/node/build-scan-package/**"
+          )"
+
+          if [[ -n "$TRACKED_GENERATED_FILES" ]]; then
+            echo "$TRACKED_GENERATED_FILES"
             echo "::error title=Generated files committed::Coverage, test reports or build output must not be committed"
             exit 1
           fi
-          echo "No generated output is tracked."
+
+          echo "No generated coverage, test-result or build files are tracked."
+          echo "::endgroup::"
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4.37.7
         with:
@@ -114,48 +179,88 @@ jobs:
               - app/node/build-scan-package
               - app/node/node_modules
               - "**/*.min.js"
+
       - name: Perform CodeQL analysis
         uses: github/codeql-action/analyze@v4.37.7
         with:
           category: "/language:javascript-typescript"
 
+      - name: Write CodeQL summary
+        if: always()
+        shell: bash
+        run: |
+          echo "### CodeQL result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 4. UNIT TESTS AND COVERAGE
+  #
+  # This preserves the previously working SonarQube coverage
+  # flow: unit tests create coverage/lcov.info, then upload it.
+  # ==========================================================
   unit-test:
-    name: Complete Tests and Combined Coverage
-    needs: [lint, security-sca]
+    name: Unit Tests
+    needs:
+      - lint
+      - security-sca
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    permissions:
+      contents: read
+
     defaults:
       run:
         shell: bash
         working-directory: app/node
+
     outputs:
-      node_version: ${{ steps.metadata.outputs.node_version }}
-      tested_sha: ${{ steps.metadata.outputs.tested_sha }}
+      node_version: ${{ steps.test_metadata.outputs.node_version }}
+      tested_sha: ${{ steps.test_metadata.outputs.tested_sha }}
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: app/node/package-lock.json
-      - run: npm ci
-      - name: Run complete test suite with combined coverage
-        run: npm run test:coverage -- --coverageDirectory=coverage
-      - name: Verify combined LCOV report
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run unit tests with coverage
+        run: |
+          echo "::group::Jest unit tests"
+          npm run test:unit -- \
+            --coverage \
+            --coverageDirectory=coverage
+          echo "::endgroup::"
+
+      - name: Verify LCOV report
         run: |
           test -f coverage/lcov.info
-          echo "::group::Files included in LCOV"
+
+          echo "::group::LCOV source records"
           grep "^SF:" coverage/lcov.info | sort | uniq
           echo "::endgroup::"
-          grep -q "^SF:" coverage/lcov.info
-      - name: Capture metadata
-        id: metadata
+
+          if ! grep -q "^SF:" coverage/lcov.info; then
+            echo "::error title=Invalid LCOV report::No source-file records were found"
+            exit 1
+          fi
+
+      - name: Capture test metadata
+        id: test_metadata
         run: |
           echo "node_version=$(node --version)" >> "$GITHUB_OUTPUT"
           echo "tested_sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-      - name: Upload combined coverage
+
+      - name: Upload unit-test coverage
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -164,31 +269,67 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+      - name: Write unit-test summary
+        if: always()
+        run: |
+          {
+            echo "## Unit Tests"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Result | ${{ job.status }} |"
+            echo "| Node | $(node --version 2>/dev/null || echo unavailable) |"
+            echo "| Commit | ${{ github.sha }} |"
+            echo "| Coverage artifact | unit-coverage-${{ github.run_id }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 5. INTEGRATION TESTS
+  # ==========================================================
   integration-test:
-    name: Integration Test Report
-    needs: unit-test
+    name: Integration Tests
+    needs:
+      - unit-test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    permissions:
+      contents: read
+
     defaults:
       run:
         shell: bash
         working-directory: app/node
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: app/node/package-lock.json
-      - run: npm ci
+
+      - name: Install locked dependencies
+        run: npm ci
+
       - name: Run integration tests with JUnit XML
-        run: npm run test:integration -- --reporters=default --reporters=jest-junit
+        run: |
+          echo "::group::Jest integration tests"
+          npm run test:integration -- \
+            --coverage \
+            --reporters=default \
+            --reporters=jest-junit
+          echo "::endgroup::"
         env:
           JEST_JUNIT_OUTPUT_DIR: test-results
           JEST_JUNIT_OUTPUT_NAME: integration.xml
-      - name: Upload integration results
+
+      - name: Upload integration-test results
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
@@ -197,22 +338,23 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-    # ==========================================================
-  # 6. SONARQUBE CLOUD ANALYSIS
+      - name: Write integration-test summary
+        if: always()
+        run: |
+          echo "### Integration-test result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 6. SONARQUBE CLOUD
   #
-  # Combined Jest coverage is generated in unit-test,
-  # uploaded as unit-coverage-<run-id>, and downloaded here.
-  #
-  # The SonarCloud GitHub check reports the Quality Gate.
-  # Do not enable scanner-side Quality Gate polling.
+  # This is the exact previously working push-based pattern:
+  # full checkout, matching coverage artifact name, and
+  # projectBaseDir set to app/node.
   # ==========================================================
   sonar:
     name: SonarQube Analysis
-
     needs:
       - unit-test
       - integration-test
-
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -226,38 +368,28 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Download combined coverage
+      - name: Download unit-test coverage
         uses: actions/download-artifact@v8.0.1
         with:
           name: unit-coverage-${{ github.run_id }}
           path: app/node/coverage
 
-      - name: Verify SonarQube inputs and LCOV mappings
+      - name: Verify SonarQube inputs
         shell: bash
         run: |
+          echo "::group::SonarQube inputs"
+
           test -f app/node/sonar-project.properties
           test -f app/node/coverage/lcov.info
 
-          echo "::group::SonarQube project configuration"
+          ls -la app/node/sonar-project.properties
 
-          grep -E "^sonar\.(projectKey|organization|projectName|javascript\.lcov\.reportPaths)=" \
+          grep -E "^sonar\.(projectKey|organization|javascript\.lcov\.reportPaths)=" \
             app/node/sonar-project.properties
 
-          echo "::endgroup::"
-
-          echo "::group::LCOV source records"
-
-          grep "^SF:" \
-            app/node/coverage/lcov.info \
-            | sort \
-            | uniq
+          ls -la app/node/coverage/lcov.info
 
           echo "::endgroup::"
-
-          if ! grep -q "^SF:" app/node/coverage/lcov.info; then
-            echo "::error title=Invalid LCOV report::No source-file records were found"
-            exit 1
-          fi
 
       - name: Run SonarQube Cloud analysis
         uses: SonarSource/sonarqube-scan-action@v8.2.1
@@ -267,7 +399,7 @@ jobs:
         with:
           projectBaseDir: app/node
 
-      - name: SonarQube summary
+      - name: Write SonarQube summary
         if: always()
         shell: bash
         run: |
@@ -276,184 +408,464 @@ jobs:
             echo ""
             echo "| Item | Value |"
             echo "|---|---|"
-            echo "| Scan submission | ${{ job.status }} |"
+            echo "| Result | ${{ job.status }} |"
             echo "| Coverage artifact | unit-coverage-${{ github.run_id }} |"
             echo "| LCOV path | app/node/coverage/lcov.info |"
             echo "| Commit | ${{ github.sha }} |"
-            echo ""
-            echo "The SonarCloud pull-request check reports the Quality Gate result."
-        
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 7. BUILD THE ACTUAL WEB ARTIFACT
+  # ==========================================================
   build:
     name: Generate Web Artifact
-    needs: [sonar, codeql]
+    needs:
+      - sonar
+      - codeql
     if: >-
-      ${{ always() && needs.sonar.result == 'success' &&
-          (needs.codeql.result == 'success' || needs.codeql.result == 'skipped') }}
+      ${{
+        always() &&
+        needs.sonar.result == 'success' &&
+        (
+          needs.codeql.result == 'success' ||
+          needs.codeql.result == 'skipped'
+        )
+      }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    permissions:
+      contents: read
+
     defaults:
       run:
         shell: bash
         working-directory: app/node
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: app/node/package-lock.json
-      - run: npm ci
+
+      - name: Install locked dependencies
+        run: npm ci
+
       - name: Generate web artifact
-        run: npm run build:web
+        run: |
+          echo "::group::Generate web artifact"
+          npm run build:web
+          echo "::endgroup::"
         env:
           VERSION: ${{ github.run_number }}
           RELEASE_TAG: ci-${{ github.run_number }}
+
       - name: Verify generated artifact
         run: |
+          test -d dist/web
           test -f dist/web/index.html
           test -f dist/web/version.json
           test -f dist/web/health.json
+
+          echo "::group::Generated artifact"
           find dist/web -type f -print
-      - uses: actions/upload-artifact@v7.0.1
+          echo "::endgroup::"
+
+      - name: Upload generated artifact
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: web-dist-${{ github.run_id }}
           path: app/node/dist/web/
           retention-days: 7
           if-no-files-found: error
 
+      - name: Write build summary
+        if: always()
+        run: |
+          {
+            echo "## Generated Web Artifact"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Artifact | web-dist-${{ github.run_id }} |"
+            echo "| Source | app/node/dist/web |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 8. TRIVY
+  # ==========================================================
   trivy-scan:
     name: Trivy Scan - Artifact and Dependencies
-    needs: build
+    needs:
+      - build
     runs-on: ubuntu-latest
     timeout-minutes: 20
+
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/checkout@v7.0.1
+      - name: Checkout repository
+        uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v8.0.1
+
+      - name: Download generated artifact
+        uses: actions/download-artifact@v8.0.1
         with:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
-      - name: Prepare inputs
+
+      - name: Prepare Trivy scan input
+        id: scan_input
+        shell: bash
         run: |
-          mkdir -p security-input/artifact security-input/dependencies
-          cp -R generated-artifact/. security-input/artifact/
-          cp app/node/package.json app/node/package-lock.json security-input/dependencies/
-      - uses: aquasecurity/setup-trivy@v0.3.1
+          test -f generated-artifact/index.html
+          test -f generated-artifact/version.json
+          test -f generated-artifact/health.json
+          test -f app/node/package.json
+          test -f app/node/package-lock.json
+
+          rm -rf artifact-security-input
+          mkdir -p artifact-security-input/artifact
+          mkdir -p artifact-security-input/dependency-metadata
+
+          cp -R generated-artifact/. artifact-security-input/artifact/
+          cp app/node/package.json artifact-security-input/dependency-metadata/
+          cp app/node/package-lock.json artifact-security-input/dependency-metadata/
+
+          ARTIFACT_FILE_COUNT="$(find artifact-security-input/artifact -type f | wc -l)"
+          echo "artifact_file_count=$ARTIFACT_FILE_COUNT" >> "$GITHUB_OUTPUT"
+
+          echo "::group::Trivy scan input"
+          find artifact-security-input -type f -print
+          echo "::endgroup::"
+
+      - name: Install Trivy CLI
+        uses: aquasecurity/setup-trivy@v0.3.1
         with:
           version: v0.74.0
           cache: true
-      - name: Vulnerability table
+
+      - name: Scan dependencies for vulnerabilities - table
+        shell: bash
         run: |
-          trivy fs --scanners vuln --include-dev-deps --severity HIGH,CRITICAL --format table --output trivy-vulnerability-table.txt --exit-code 0 security-input/dependencies
+          trivy fs \
+            --scanners vuln \
+            --include-dev-deps \
+            --severity HIGH,CRITICAL \
+            --format table \
+            --output trivy-vulnerability-table.txt \
+            --exit-code 0 \
+            artifact-security-input/dependency-metadata
+
+          echo "::group::Trivy vulnerability table"
           cat trivy-vulnerability-table.txt
-      - name: Vulnerability JSON
-        run: trivy fs --scanners vuln --include-dev-deps --severity HIGH,CRITICAL --format json --output trivy-vulnerability-report.json --exit-code 0 security-input/dependencies
-      - name: Secret JSON
-        run: trivy fs --scanners secret --format json --output trivy-secret-report.json --exit-code 0 security-input/artifact
-      - name: Count findings
-        id: findings
+          echo "::endgroup::"
+
+      - name: Create vulnerability JSON report
+        shell: bash
         run: |
-          VULNS=$(jq '[.Results[]? | .Vulnerabilities[]?] | length' trivy-vulnerability-report.json)
-          SECRETS=$(jq '[.Results[]? | .Secrets[]?] | length' trivy-secret-report.json)
-          echo "vulns=$VULNS" >> "$GITHUB_OUTPUT"
-          echo "secrets=$SECRETS" >> "$GITHUB_OUTPUT"
-      - name: Upload reports
+          trivy fs \
+            --scanners vuln \
+            --include-dev-deps \
+            --severity HIGH,CRITICAL \
+            --format json \
+            --output trivy-vulnerability-report.json \
+            --exit-code 0 \
+            artifact-security-input/dependency-metadata
+
+      - name: Scan generated artifact for secrets - table
+        shell: bash
+        run: |
+          trivy fs \
+            --scanners secret \
+            --format table \
+            --output trivy-secret-table.txt \
+            --exit-code 0 \
+            artifact-security-input/artifact
+
+          echo "::group::Trivy secret table"
+          cat trivy-secret-table.txt
+          echo "::endgroup::"
+
+      - name: Create secret JSON report
+        shell: bash
+        run: |
+          trivy fs \
+            --scanners secret \
+            --format json \
+            --output trivy-secret-report.json \
+            --exit-code 0 \
+            artifact-security-input/artifact
+
+      - name: Summarize Trivy results
+        id: trivy_results
+        shell: bash
+        run: |
+          test -f trivy-vulnerability-table.txt
+          test -f trivy-vulnerability-report.json
+          test -f trivy-secret-table.txt
+          test -f trivy-secret-report.json
+
+          VULNERABILITY_COUNT="$(
+            jq '[.Results[]? | .Vulnerabilities[]?] | length' \
+              trivy-vulnerability-report.json
+          )"
+
+          SECRET_COUNT="$(
+            jq '[.Results[]? | .Secrets[]?] | length' \
+              trivy-secret-report.json
+          )"
+
+          if ! [[ "$VULNERABILITY_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "::error title=Invalid vulnerability report::Unable to calculate the vulnerability count"
+            exit 1
+          fi
+
+          if ! [[ "$SECRET_COUNT" =~ ^[0-9]+$ ]]; then
+            echo "::error title=Invalid secret report::Unable to calculate the secret count"
+            exit 1
+          fi
+
+          echo "vulnerability_count=$VULNERABILITY_COUNT" >> "$GITHUB_OUTPUT"
+          echo "secret_count=$SECRET_COUNT" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Trivy Security Scan"
+            echo ""
+            echo "| Check | Target | Findings |"
+            echo "|---|---|---:|"
+            echo "| HIGH/CRITICAL dependency vulnerabilities | package-lock.json, including dev dependencies | $VULNERABILITY_COUNT |"
+            echo "| Exposed secrets | Generated web artifact | $SECRET_COUNT |"
+            echo "| Generated artifact files | app/node/dist/web | ${{ steps.scan_input.outputs.artifact_file_count }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ "$VULNERABILITY_COUNT" -eq 0 ]]; then
+            echo "::notice title=Trivy vulnerability scan passed::No HIGH or CRITICAL dependency vulnerabilities were detected"
+          else
+            echo "::error title=Trivy vulnerabilities detected::$VULNERABILITY_COUNT HIGH or CRITICAL vulnerability finding(s) detected"
+          fi
+
+          if [[ "$SECRET_COUNT" -eq 0 ]]; then
+            echo "::notice title=Trivy secret scan passed::No exposed secrets were detected in the generated artifact"
+          else
+            echo "::error title=Trivy secrets detected::$SECRET_COUNT exposed secret finding(s) detected"
+          fi
+
+      - name: Upload Trivy reports
         if: always()
         uses: actions/upload-artifact@v7.0.1
         with:
           name: trivy-reports-${{ github.run_id }}
-          path: trivy-*.txt
+          path: |
+            trivy-vulnerability-table.txt
+            trivy-vulnerability-report.json
+            trivy-secret-table.txt
+            trivy-secret-report.json
           retention-days: 7
           if-no-files-found: error
-      - name: Enforce gate
-        if: ${{ steps.findings.outputs.vulns != '0' || steps.findings.outputs.secrets != '0' }}
-        run: exit 1
 
+      - name: Fail Trivy security gate
+        if: >-
+          ${{
+            steps.trivy_results.outputs.vulnerability_count != '0' ||
+            steps.trivy_results.outputs.secret_count != '0'
+          }}
+        shell: bash
+        run: |
+          echo "::error title=Trivy security gate failed::HIGH/CRITICAL vulnerabilities or exposed secrets were detected"
+          exit 1
+
+  # ==========================================================
+  # 9. SBOM
+  # ==========================================================
   sbom:
     name: SBOM - Generated Web Artifact
-    needs: build
+    needs:
+      - build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    permissions:
+      contents: read
+
     steps:
-      - uses: actions/download-artifact@v8.0.1
+      - name: Download generated artifact
+        uses: actions/download-artifact@v8.0.1
         with:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
-      - uses: anchore/sbom-action@v0.24.0
+
+      - name: Generate SPDX JSON SBOM
+        uses: anchore/sbom-action@v0.24.0
         with:
           path: generated-artifact
           format: spdx-json
           output-file: sbom.spdx.json
-      - uses: actions/upload-artifact@v7.0.1
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: sbom-${{ github.run_id }}
           path: sbom.spdx.json
           retention-days: 7
           if-no-files-found: error
 
+      - name: Write SBOM summary
+        if: always()
+        run: |
+          {
+            echo "## Artifact SBOM"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Format | SPDX JSON |"
+            echo "| Artifact | web-dist-${{ github.run_id }} |"
+            echo "| Result | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ==========================================================
+  # 10. FINAL STATUS AND CI EVIDENCE BUNDLE
+  # ==========================================================
   publish-artifacts:
     name: Publish CI Evidence Bundle
-    needs: [lint, security-sca, codeql, unit-test, integration-test, sonar, build, trivy-scan, sbom]
+    needs:
+      - lint
+      - security-sca
+      - codeql
+      - unit-test
+      - integration-test
+      - sonar
+      - build
+      - trivy-scan
+      - sbom
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    permissions:
+      contents: read
+
     steps:
       - name: Download all available artifacts
         continue-on-error: true
         uses: actions/download-artifact@v8.0.1
         with:
           path: all-artifacts
-      - name: Write complete status summary and manifest
+
+      - name: Create evidence manifest
         shell: bash
         run: |
           mkdir -p ci-evidence
-          [[ -d all-artifacts ]] && cp -R all-artifacts/. ci-evidence/ || true
-          status_icon() {
-            case "$1" in
-              success) printf '✅';; failure) printf '❌';;
-              cancelled) printf '⛔';; skipped) printf '⏭️';;
-              *) printf '❔';;
-            esac
-          }
-          cat > ci-evidence/manifest.txt <<EOF
+
+          if [[ -d all-artifacts ]]; then
+            cp -R all-artifacts/. ci-evidence/
+          fi
+
+          cat > ci-evidence/manifest.txt <<EOF_MANIFEST
+          Workflow: ${{ github.workflow }}
+          Run ID: ${{ github.run_id }}
+          Run number: ${{ github.run_number }}
+          Event: ${{ github.event_name }}
+          Branch or ref: ${{ github.ref_name }}
+          Commit: ${{ github.sha }}
+
           Lint: ${{ needs.lint.result }}
-          npm audit: ${{ needs.security-sca.result }}
+          npm dependency audit: ${{ needs.security-sca.result }}
           CodeQL: ${{ needs.codeql.result }}
-          Complete tests and coverage: ${{ needs.unit-test.result }}
-          Integration report: ${{ needs.integration-test.result }}
+          Unit tests: ${{ needs.unit-test.result }}
+          Integration tests: ${{ needs.integration-test.result }}
           SonarQube: ${{ needs.sonar.result }}
           Build: ${{ needs.build.result }}
           Trivy: ${{ needs.trivy-scan.result }}
           SBOM: ${{ needs.sbom.result }}
-          EOF
+          EOF_MANIFEST
+
+          echo "::group::CI evidence contents"
+          find ci-evidence -maxdepth 6 -type f -print
+          echo "::endgroup::"
+
+      - name: Write complete CI status summary
+        shell: bash
+        run: |
+          status_icon() {
+            case "$1" in
+              success)   printf '✅' ;;
+              failure)   printf '❌' ;;
+              cancelled) printf '⛔' ;;
+              skipped)   printf '⏭️' ;;
+              *)         printf '❔' ;;
+            esac
+          }
+
           {
-            echo "# Complete CI Status"
-            echo "| Job | Status | Result |"
+            echo "# CI Pipeline Result"
+            echo ""
+            echo "| Stage | Status | Result |"
             echo "|---|---:|---|"
             echo "| Lint | $(status_icon '${{ needs.lint.result }}') | ${{ needs.lint.result }} |"
-            echo "| npm Audit | $(status_icon '${{ needs.security-sca.result }}') | ${{ needs.security-sca.result }} |"
+            echo "| npm Dependency Audit | $(status_icon '${{ needs.security-sca.result }}') | ${{ needs.security-sca.result }} |"
             echo "| CodeQL | $(status_icon '${{ needs.codeql.result }}') | ${{ needs.codeql.result }} |"
-            echo "| Tests + Coverage | $(status_icon '${{ needs.unit-test.result }}') | ${{ needs.unit-test.result }} |"
-            echo "| Integration Report | $(status_icon '${{ needs.integration-test.result }}') | ${{ needs.integration-test.result }} |"
+            echo "| Unit Tests | $(status_icon '${{ needs.unit-test.result }}') | ${{ needs.unit-test.result }} |"
+            echo "| Integration Tests | $(status_icon '${{ needs.integration-test.result }}') | ${{ needs.integration-test.result }} |"
             echo "| SonarQube | $(status_icon '${{ needs.sonar.result }}') | ${{ needs.sonar.result }} |"
-            echo "| Build | $(status_icon '${{ needs.build.result }}') | ${{ needs.build.result }} |"
+            echo "| Generate Web Artifact | $(status_icon '${{ needs.build.result }}') | ${{ needs.build.result }} |"
             echo "| Trivy | $(status_icon '${{ needs.trivy-scan.result }}') | ${{ needs.trivy-scan.result }} |"
             echo "| SBOM | $(status_icon '${{ needs.sbom.result }}') | ${{ needs.sbom.result }} |"
+            echo ""
+            echo "## Status legend"
+            echo ""
+            echo "- ✅ success"
+            echo "- ❌ failure"
+            echo "- ⛔ cancelled"
+            echo "- ⏭️ skipped"
+            echo ""
+            echo "## Run metadata"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Workflow | ${{ github.workflow }} |"
+            echo "| Run ID | ${{ github.run_id }} |"
+            echo "| Run number | ${{ github.run_number }} |"
+            echo "| Event | ${{ github.event_name }} |"
+            echo "| Ref | ${{ github.ref_name }} |"
+            echo "| Commit | ${{ github.sha }} |"
           } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7.0.1
+
+      - name: Upload CI evidence bundle
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: ci-evidence-${{ github.run_id }}
           path: ci-evidence/
           retention-days: 14
           if-no-files-found: error
-      - name: Enforce final gate
+
+      - name: Fail final CI gate when a required job did not succeed
         if: >-
-          ${{ needs.lint.result != 'success' || needs.security-sca.result != 'success' ||
-              needs.unit-test.result != 'success' || needs.integration-test.result != 'success' ||
-              needs.sonar.result != 'success' || needs.build.result != 'success' ||
-              needs.trivy-scan.result != 'success' || needs.sbom.result != 'success' ||
-              (needs.codeql.result != 'success' && needs.codeql.result != 'skipped') }}
-        run: exit 1
+          ${{
+            needs.lint.result != 'success' ||
+            needs.security-sca.result != 'success' ||
+            needs.unit-test.result != 'success' ||
+            needs.integration-test.result != 'success' ||
+            needs.sonar.result != 'success' ||
+            needs.build.result != 'success' ||
+            needs.trivy-scan.result != 'success' ||
+            needs.sbom.result != 'success' ||
+            (
+              needs.codeql.result != 'success' &&
+              needs.codeql.result != 'skipped'
+            )
+          }}
+        shell: bash
+        run: |
+          echo "::error title=CI gate failed::One or more required CI stages failed, were cancelled, or were skipped"
+          exit 1
