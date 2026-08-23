@@ -1,0 +1,83 @@
+name: Artifact Download - Expected Failure
+
+on:
+  workflow_run:
+    workflows:
+      - "Artifact Upload - Fail"
+    types:
+      - completed
+
+permissions:
+  contents: read
+
+jobs:
+  consume:
+    name: Attempt cross-workflow artifact download
+
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Show producer workflow information
+        shell: bash
+        run: |
+          {
+            echo "# Consumer Workflow"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Triggered by | ${{ github.event.workflow_run.name }} |"
+            echo "| Producer conclusion | ${{ github.event.workflow_run.conclusion }} |"
+            echo "| Producer run ID | ${{ github.event.workflow_run.id }} |"
+            echo "| Producer commit | ${{ github.event.workflow_run.head_sha }} |"
+            echo "| Consumer run ID | ${{ github.run_id }} |"
+            echo "| Requested artifact | cross-demo-app |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "Producer workflow:"
+          echo "  Name       : ${{ github.event.workflow_run.name }}"
+          echo "  Conclusion : ${{ github.event.workflow_run.conclusion }}"
+          echo "  Run ID     : ${{ github.event.workflow_run.id }}"
+          echo "  Commit     : ${{ github.event.workflow_run.head_sha }}"
+
+          echo ""
+          echo "Consumer workflow:"
+          echo "  Run ID     : ${{ github.run_id }}"
+
+          echo ""
+          echo "The producer and consumer have different workflow run IDs."
+
+      - name: Explain the expected failure
+        shell: bash
+        run: |
+          echo "::warning title=Expected demonstration failure::The next step tries to download cross-demo-app from the current consumer run"
+
+          echo "The artifact was created in producer run:"
+          echo "${{ github.event.workflow_run.id }}"
+
+          echo ""
+          echo "The download step is executing in consumer run:"
+          echo "${{ github.run_id }}"
+
+          echo ""
+          echo "The artifact names match, but the workflow run scope does not match."
+
+      - name: Try to download artifact from producer workflow
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: cross-demo-app
+          path: dist/
+
+      - name: This step should never run
+        shell: bash
+        run: |
+          echo "::error title=Unexpected result::The artifact was downloaded unexpectedly"
+
+          cat dist/app.txt
+
+          exit 1
