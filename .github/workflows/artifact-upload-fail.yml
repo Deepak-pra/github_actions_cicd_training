@@ -1,0 +1,77 @@
+name: Artifact Upload - Fail
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  produce:
+    name: Produce and upload artifact
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Create the artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+
+          {
+            echo "Application: ShipFast"
+            echo "Source workflow: Artifact Upload - Fail"
+            echo "Source run ID: ${{ github.run_id }}"
+            echo "Commit SHA: ${{ github.sha }}"
+            echo "Short SHA: ${GITHUB_SHA:0:7}"
+            echo "Generated at: $(date -u)"
+          } > dist/app.txt
+
+          echo "::group::Generated artifact"
+
+          find dist -type f -print
+
+          echo ""
+          cat dist/app.txt
+
+          echo "::endgroup::"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: cross-demo-app
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Write producer summary
+        shell: bash
+        run: |
+          {
+            echo "# Producer Workflow"
+            echo ""
+            echo "| Item | Value |"
+            echo "|---|---|"
+            echo "| Workflow | ${{ github.workflow }} |"
+            echo "| Run ID | ${{ github.run_id }} |"
+            echo "| Artifact name | cross-demo-app |"
+            echo "| Artifact path | dist/app.txt |"
+            echo "| Retention | 1 day |"
+            echo "| Result | Uploaded successfully |"
+            echo ""
+            echo "The artifact belongs to this workflow run."
+            echo ""
+            echo "The consumer workflow will be triggered after this workflow completes successfully."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Explain expected consumer behavior
+        shell: bash
+        run: |
+          echo "::notice title=Producer completed::Artifact cross-demo-app was uploaded in workflow run ${{ github.run_id }}"
+
+          echo "The consumer workflow will start through workflow_run."
+          echo "The consumer will intentionally fail when it tries the normal download-artifact lookup."

@@ -1,0 +1,127 @@
+name: Artifact Download - Success
+
+on:
+  workflow_run:
+    workflows:
+      - "Artifact Upload - Success"
+    types:
+      - completed
+
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "7-character short SHA of the release to download"
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Download release artifact from producer workflow
+
+    if: >-
+      ${{
+        github.event_name == 'workflow_dispatch' ||
+        github.event.workflow_run.conclusion == 'success'
+      }}
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Show trigger information
+        shell: bash
+        run: |
+          echo "Consumer event: ${{ github.event_name }}"
+
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "Producer workflow:"
+            echo "  Name       : ${{ github.event.workflow_run.name }}"
+            echo "  Conclusion : ${{ github.event.workflow_run.conclusion }}"
+            echo "  Run ID     : ${{ github.event.workflow_run.id }}"
+            echo "  Commit     : ${{ github.event.workflow_run.head_sha }}"
+          else
+            echo "Manual short SHA:"
+            echo "  ${{ inputs.sha }}"
+          fi
+
+      - name: Resolve the release tag
+        id: release
+        shell: bash
+        env:
+          PRODUCER_SHA: ${{ github.event.workflow_run.head_sha }}
+          MANUAL_SHA: ${{ inputs.sha }}
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            SHORT_SHA="$MANUAL_SHA"
+          else
+            SHORT_SHA="${PRODUCER_SHA:0:7}"
+          fi
+
+          if [[ ! "$SHORT_SHA" =~ ^[0-9a-fA-F]{7}$ ]]; then
+            echo "::error title=Invalid short SHA::Expected exactly seven hexadecimal characters"
+
+            exit 1
+          fi
+
+          TAG="app-1.0.0-${SHORT_SHA}"
+
+          echo "short_sha=$SHORT_SHA" \
+            >> "$GITHUB_OUTPUT"
+
+          echo "release_tag=$TAG" \
+            >> "$GITHUB_OUTPUT"
+
+          echo "Resolved release tag: $TAG"
+
+      - name: Download the same release artifact by tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.release.outputs.release_tag }}"
+
+          mkdir -p dist
+
+          echo "Downloading release: $TAG"
+
+          gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "app.zip" \
+            --dir dist/
+
+          echo "::group::Downloaded release artifact"
+
+          find dist -maxdepth 2 -type f -print
+          ls -lh dist/app.zip
+
+          echo "::endgroup::"
+
+      - name: Extract the downloaded artifact
+        shell: bash
+        run: |
+          mkdir -p extracted
+
+          unzip -q dist/app.zip \
+            -d extracted/
+
+          echo "::group::Extracted artifact"
+
+          find extracted -maxdepth 2 -type f -print
+
+          echo ""
+          cat extracted/app.txt
+
+          echo "::endgroup::"
+
+      - name: Verify artifact provenance
+        shell: bash
+        run: |
+          EXPECTED_SHA="${{ steps.release.outputs.short_sha }}"
+
+    

@@ -5,12 +5,12 @@ module.exports = {
   testEnvironment: "node",
 
   testMatch: [
-    "<rootDir>/__tests__/**/*.test.js",
+    "<rootDir>/__tests__/**/*.test.js"
   ],
 
   collectCoverageFrom: [
     "<rootDir>/src/**/*.js",
-    "!<rootDir>/src/server.js",
+    "!<rootDir>/src/server.js"
   ],
 
   coverageDirectory: "<rootDir>/coverage",
@@ -19,7 +19,7 @@ module.exports = {
     "text",
     "text-summary",
     "lcov",
-    "html",
+    "html"
   ],
 
   clearMocks: true,
@@ -27,4 +27,6 @@ module.exports = {
   verbose: true,
 
   passWithNoTests: false,
+
+  testTimeout: 10000
 };

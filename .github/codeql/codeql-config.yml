@@ -1,0 +1,13 @@
+name: Node CodeQL Configuration
+
+paths:
+  - "app/node/src/**"
+  - "app/node/scripts/**"
+
+paths-ignore:
+  - "app/node/coverage/**"
+  - "app/node/test-results/**"
+  - "app/node/dist/**"
+  - "app/node/build-scan-package/**"
+  - "app/node/node_modules/**"
+  - "**/*.min.js"
