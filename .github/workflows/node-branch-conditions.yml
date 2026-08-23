@@ -343,18 +343,13 @@ jobs:
         run: |
           echo "### Integration-test result: ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
 
-  # ==========================================================
-  # 6. SONARQUBE CLOUD
-  #
-  # This is the exact previously working push-based pattern:
-  # full checkout, matching coverage artifact name, and
-  # projectBaseDir set to app/node.
-  # ==========================================================
   sonar:
     name: SonarQube Analysis
+
     needs:
       - unit-test
       - integration-test
+
     runs-on: ubuntu-latest
     timeout-minutes: 20
 
@@ -382,14 +377,33 @@ jobs:
           test -f app/node/sonar-project.properties
           test -f app/node/coverage/lcov.info
 
-          ls -la app/node/sonar-project.properties
+          echo "Workflow commit:"
+          echo "${{ github.sha }}"
 
-          grep -E "^sonar\.(projectKey|organization|javascript\.lcov\.reportPaths)=" \
+          echo ""
+          echo "SonarQube project configuration:"
+
+          grep -E "^sonar\.(projectKey|organization|projectName|javascript\.lcov\.reportPaths)=" \
             app/node/sonar-project.properties
 
-          ls -la app/node/coverage/lcov.info
+          echo ""
+          echo "LCOV report:"
+
+          ls -lh app/node/coverage/lcov.info
+
+          echo ""
+          echo "LCOV source records:"
+
+          grep "^SF:" app/node/coverage/lcov.info \
+            | sort \
+            | uniq
 
           echo "::endgroup::"
+
+          if ! grep -q "^SF:" app/node/coverage/lcov.info; then
+            echo "::error title=Invalid LCOV report::No source-file records were found"
+            exit 1
+          fi
 
       - name: Run SonarQube Cloud analysis
         uses: SonarSource/sonarqube-scan-action@v8.2.1
@@ -398,6 +412,8 @@ jobs:
           SONAR_HOST_URL: https://sonarcloud.io
         with:
           projectBaseDir: app/node
+          args: >
+            -Dsonar.qualitygate.wait=false
 
       - name: Write SonarQube summary
         if: always()
@@ -408,11 +424,8 @@ jobs:
             echo ""
             echo "| Item | Value |"
             echo "|---|---|"
-            echo "| Result | ${{ job.status }} |"
-            echo "| Coverage artifact | unit-coverage-${{ github.run_id }} |"
-            echo "| LCOV path | app/node/coverage/lcov.info |"
-            echo "| Commit | ${{ github.sha }} |"
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "| Scan submission | ${{ job.status }} |"
+            echo "| Coverage artifact
 
   # ==========================================================
   # 7. BUILD THE ACTUAL WEB ARTIFACT
