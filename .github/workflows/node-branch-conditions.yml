@@ -419,13 +419,19 @@ jobs:
         if: always()
         shell: bash
         run: |
-          {
-            echo "## SonarQube Cloud Analysis"
-            echo ""
-            echo "| Item | Value |"
-            echo "|---|---|"
-            echo "| Scan submission | ${{ job.status }} |"
-            echo "| Coverage artifact
+          cat >> "$GITHUB_STEP_SUMMARY" <<EOF_SUMMARY
+          ## SonarQube Cloud Analysis
+
+          | Item | Value |
+          |---|---|
+          | Scan submission | ${{ job.status }} |
+          | Coverage artifact | unit-coverage-${{ github.run_id }} |
+          | LCOV path | app/node/coverage/lcov.info |
+          | Commit | ${{ github.sha }} |
+          | Scanner Quality Gate Validated | 
+
+          The SonarCloud check reports the Quality Gate result.
+          EOF_SUMMARY
 
   # ==========================================================
   # 7. BUILD THE ACTUAL WEB ARTIFACT
