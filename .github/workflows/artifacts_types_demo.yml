@@ -1,0 +1,796 @@
+name: Artifacts Types - Demo
+
+on:
+  push:
+    paths:
+      - "app/node/**"
+      - ".github/workflows/artifacts_types_demo.yml"
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "24"
+  ARTIFACT_RETENTION_DAYS: "2"
+  COVERAGE_TARGET: "60"
+
+jobs:
+  lint:
+    name: "1 - Run ESLint and Generate Report"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      lint_passed: ${{ steps.lint.outputs.lint_passed }}
+      lint_exit_code: ${{ steps.lint.outputs.lint_exit_code }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app/node
+        run: npm ci
+
+      - name: Run actual ESLint
+        id: lint
+        working-directory: app/node
+        shell: bash
+        run: |
+          mkdir -p lint-results logs
+
+          set +e
+
+          npm run lint 2>&1 | tee logs/eslint-console.log
+          LINT_EXIT_CODE=${PIPESTATUS[0]}
+
+          npm run lint -- \
+            --format json \
+            --output-file lint-results/eslint-report.json
+
+          set -e
+
+          if [ "$LINT_EXIT_CODE" -eq 0 ]; then
+            LINT_PASSED=true
+            echo "::notice title=ESLint::Lint validation passed"
+          else
+            LINT_PASSED=false
+            echo "::error title=ESLint::Lint validation failed"
+          fi
+
+          echo "lint_passed=$LINT_PASSED" >> "$GITHUB_OUTPUT"
+          echo "lint_exit_code=$LINT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          exit "$LINT_EXIT_CODE"
+
+      - name: Upload ESLint report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: eslint-report-${{ github.run_id }}
+          path: app/node/lint-results/eslint-report.json
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+      - name: Upload ESLint execution log
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: eslint-log-${{ github.run_id }}
+          path: app/node/logs/eslint-console.log
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+
+  unit-test:
+    name: "2 - Run Unit Tests and Generate Report"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    outputs:
+      unit_tests_passed: ${{ steps.unit.outputs.unit_tests_passed }}
+      unit_test_exit_code: ${{ steps.unit.outputs.unit_test_exit_code }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app/node
+        run: npm ci
+
+      - name: Run actual Jest unit tests
+        id: unit
+        working-directory: app/node
+        shell: bash
+        env:
+          JEST_JUNIT_OUTPUT_DIR: test-results/unit
+          JEST_JUNIT_OUTPUT_NAME: junit.xml
+          JEST_JUNIT_SUITE_NAME: ShipFast Node Unit Tests
+        run: |
+          mkdir -p test-results/unit logs
+
+          set +e
+
+          npm run test:unit -- \
+            --runInBand \
+            --reporters=default \
+            --reporters=jest-junit \
+            2>&1 | tee logs/unit-test-console.log
+
+          UNIT_EXIT_CODE=${PIPESTATUS[0]}
+
+          set -e
+
+          if [ "$UNIT_EXIT_CODE" -eq 0 ]; then
+            UNIT_TESTS_PASSED=true
+            echo "::notice title=Unit Tests::All unit tests passed"
+          else
+            UNIT_TESTS_PASSED=false
+            echo "::error title=Unit Tests::One or more unit tests failed"
+          fi
+
+          echo "unit_tests_passed=$UNIT_TESTS_PASSED" >> "$GITHUB_OUTPUT"
+          echo "unit_test_exit_code=$UNIT_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          exit "$UNIT_EXIT_CODE"
+
+      - name: Display generated unit-test report
+        if: always()
+        working-directory: app/node
+        run: |
+          echo "::group::Unit-Test JUnit Report"
+
+          if [ -f test-results/unit/junit.xml ]; then
+            cat test-results/unit/junit.xml
+          else
+            echo "Unit-test JUnit report was not generated."
+          fi
+
+          echo "::endgroup::"
+
+      - name: Upload unit-test report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: unit-test-report-${{ github.run_id }}
+          path: app/node/test-results/unit/
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+      - name: Upload unit-test execution log
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: unit-test-log-${{ github.run_id }}
+          path: app/node/logs/unit-test-console.log
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+
+  integration-test:
+    name: "3 - Run Integration Tests and Generate Report"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    outputs:
+      integration_tests_passed: ${{ steps.integration.outputs.integration_tests_passed }}
+      integration_test_exit_code: ${{ steps.integration.outputs.integration_test_exit_code }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app/node
+        run: npm ci
+
+      - name: Run actual Jest integration tests
+        id: integration
+        working-directory: app/node
+        shell: bash
+        env:
+          JEST_JUNIT_OUTPUT_DIR: test-results/integration
+          JEST_JUNIT_OUTPUT_NAME: junit.xml
+          JEST_JUNIT_SUITE_NAME: ShipFast Node Integration Tests
+        run: |
+          mkdir -p test-results/integration logs
+
+          set +e
+
+          npm run test:integration -- \
+            --runInBand \
+            --reporters=default \
+            --reporters=jest-junit \
+            2>&1 | tee logs/integration-test-console.log
+
+          INTEGRATION_EXIT_CODE=${PIPESTATUS[0]}
+
+          set -e
+
+          if [ "$INTEGRATION_EXIT_CODE" -eq 0 ]; then
+            INTEGRATION_TESTS_PASSED=true
+            echo "::notice title=Integration Tests::All integration tests passed"
+          else
+            INTEGRATION_TESTS_PASSED=false
+            echo "::error title=Integration Tests::One or more integration tests failed"
+          fi
+
+          echo "integration_tests_passed=$INTEGRATION_TESTS_PASSED" >> "$GITHUB_OUTPUT"
+          echo "integration_test_exit_code=$INTEGRATION_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          exit "$INTEGRATION_EXIT_CODE"
+
+      - name: Display generated integration-test report
+        if: always()
+        working-directory: app/node
+        run: |
+          echo "::group::Integration-Test JUnit Report"
+
+          if [ -f test-results/integration/junit.xml ]; then
+            cat test-results/integration/junit.xml
+          else
+            echo "Integration-test JUnit report was not generated."
+          fi
+
+          echo "::endgroup::"
+
+      - name: Upload integration-test report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: integration-test-report-${{ github.run_id }}
+          path: app/node/test-results/integration/
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+      - name: Upload integration-test execution log
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: integration-test-log-${{ github.run_id }}
+          path: app/node/logs/integration-test-console.log
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+
+  coverage:
+    name: "4 - Generate Actual Jest Coverage"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    outputs:
+      coverage_percent: ${{ steps.coverage.outputs.coverage_percent }}
+      coverage_target: ${{ steps.coverage.outputs.coverage_target }}
+      coverage_passed: ${{ steps.coverage.outputs.coverage_passed }}
+      coverage_exit_code: ${{ steps.coverage.outputs.coverage_exit_code }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app/node
+        run: npm ci
+
+      - name: Generate actual Jest coverage
+        id: coverage
+        working-directory: app/node
+        shell: bash
+        run: |
+          rm -rf coverage
+          mkdir -p coverage logs
+
+          set +e
+
+          npm run test:coverage -- \
+            --runInBand \
+            --coverageReporters=lcov \
+            --coverageReporters=json-summary \
+            --coverageReporters=text \
+            2>&1 | tee logs/coverage-console.log
+
+          COVERAGE_EXIT_CODE=${PIPESTATUS[0]}
+
+          set -e
+
+          test -f coverage/lcov.info
+          test -f coverage/coverage-summary.json
+
+          COVERAGE_PERCENT=$(
+            node -e "
+              const summary =
+                require('./coverage/coverage-summary.json');
+
+              console.log(summary.total.lines.pct);
+            "
+          )
+
+          if awk \
+            -v actual="$COVERAGE_PERCENT" \
+            -v target="$COVERAGE_TARGET" \
+            'BEGIN { exit !(actual >= target) }'
+          then
+            COVERAGE_PASSED=true
+            echo "::notice title=Coverage::Coverage ${COVERAGE_PERCENT}% meets target ${COVERAGE_TARGET}%"
+          else
+            COVERAGE_PASSED=false
+            echo "::warning title=Coverage::Coverage ${COVERAGE_PERCENT}% is below target ${COVERAGE_TARGET}%"
+          fi
+
+          echo "coverage_percent=$COVERAGE_PERCENT" >> "$GITHUB_OUTPUT"
+          echo "coverage_target=$COVERAGE_TARGET" >> "$GITHUB_OUTPUT"
+          echo "coverage_passed=$COVERAGE_PASSED" >> "$GITHUB_OUTPUT"
+          echo "coverage_exit_code=$COVERAGE_EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          exit "$COVERAGE_EXIT_CODE"
+
+      - name: Display generated coverage files
+        if: always()
+        working-directory: app/node
+        run: |
+          echo "::group::Coverage Files"
+
+          if [ -d coverage ]; then
+            find coverage \
+              -type f \
+              -printf "%p | %s bytes\n"
+          else
+            echo "Coverage directory was not generated."
+          fi
+
+          echo "::endgroup::"
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: app/node/coverage/
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+      - name: Upload coverage execution log
+        if: always()
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: coverage-log-${{ github.run_id }}
+          path: app/node/logs/coverage-console.log
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+
+  quality-decision:
+    name: "5 - Evaluate Outputs and Control Pipeline"
+    needs:
+      - lint
+      - unit-test
+      - integration-test
+      - coverage
+
+    if: always()
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      proceed_to_sonar: ${{ steps.decision.outputs.proceed_to_sonar }}
+      proceed_to_build: ${{ steps.decision.outputs.proceed_to_build }}
+      build_version: ${{ steps.decision.outputs.build_version }}
+      decision_reason: ${{ steps.decision.outputs.decision_reason }}
+
+    steps:
+      - name: Display actual results
+        run: |
+          echo "::group::Actual Quality Results"
+
+          echo "Lint job result             : ${{ needs.lint.result }}"
+          echo "Lint passed                 : ${{ needs.lint.outputs.lint_passed }}"
+
+          echo "Unit-test job result        : ${{ needs.unit-test.result }}"
+          echo "Unit tests passed           : ${{ needs.unit-test.outputs.unit_tests_passed }}"
+
+          echo "Integration-test job result : ${{ needs.integration-test.result }}"
+          echo "Integration tests passed    : ${{ needs.integration-test.outputs.integration_tests_passed }}"
+
+          echo "Coverage job result         : ${{ needs.coverage.result }}"
+          echo "Coverage percentage         : ${{ needs.coverage.outputs.coverage_percent }}%"
+          echo "Coverage target             : ${{ needs.coverage.outputs.coverage_target }}%"
+          echo "Coverage target met         : ${{ needs.coverage.outputs.coverage_passed }}"
+
+          echo "::endgroup::"
+
+      - name: Evaluate outputs
+        id: decision
+        shell: bash
+        run: |
+          BUILD_VERSION="demo-${GITHUB_RUN_NUMBER}-${GITHUB_SHA:0:7}"
+
+          if [ "${{ needs.lint.result }}" = "success" ] &&
+             [ "${{ needs.unit-test.result }}" = "success" ] &&
+             [ "${{ needs.integration-test.result }}" = "success" ] &&
+             [ "${{ needs.coverage.result }}" = "success" ] &&
+             [ "${{ needs.coverage.outputs.coverage_passed }}" = "true" ]
+          then
+            PROCEED_TO_SONAR=true
+            PROCEED_TO_BUILD=true
+            DECISION_REASON="Lint, unit tests, integration tests and coverage passed"
+
+            echo "::notice title=Pipeline Decision::Sonar and build are allowed"
+          else
+            PROCEED_TO_SONAR=false
+            PROCEED_TO_BUILD=false
+            DECISION_REASON="One or more quality requirements failed"
+
+            echo "::warning title=Pipeline Decision::Sonar and build will be skipped"
+          fi
+
+          echo "proceed_to_sonar=$PROCEED_TO_SONAR" >> "$GITHUB_OUTPUT"
+          echo "proceed_to_build=$PROCEED_TO_BUILD" >> "$GITHUB_OUTPUT"
+          echo "build_version=$BUILD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "decision_reason=$DECISION_REASON" >> "$GITHUB_OUTPUT"
+
+      - name: Write decision to Job Summary
+        run: |
+          {
+            echo "## Actual Quality Decision"
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| ESLint | ${{ needs.lint.result }} |"
+            echo "| Unit tests | ${{ needs.unit-test.result }} |"
+            echo "| Integration tests | ${{ needs.integration-test.result }} |"
+            echo "| Line coverage | ${{ needs.coverage.outputs.coverage_percent }}% |"
+            echo "| Coverage target | ${{ needs.coverage.outputs.coverage_target }}% |"
+            echo "| Continue to Sonar | ${{ steps.decision.outputs.proceed_to_sonar }} |"
+            echo "| Continue to build | ${{ steps.decision.outputs.proceed_to_build }} |"
+            echo "| Build version | ${{ steps.decision.outputs.build_version }} |"
+            echo ""
+            echo "Decision: ${{ steps.decision.outputs.decision_reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+
+  sonar:
+    name: "6 - Run SonarQube Cloud Analysis"
+    needs:
+      - quality-decision
+      - coverage
+
+    if: needs.quality-decision.outputs.proceed_to_sonar == 'true'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Download actual coverage report
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: app/node/coverage/
+
+      - name: Validate SonarQube input files
+        run: |
+          test -f app/node/sonar-project.properties
+          test -f app/node/coverage/lcov.info
+
+          echo "::group::SonarQube Input Files"
+
+          ls -lh app/node/sonar-project.properties
+          ls -lh app/node/coverage/lcov.info
+
+          echo "::endgroup::"
+
+      - name: Run actual SonarQube Cloud analysis
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          projectBaseDir: app/node
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+
+  application-build:
+    name: "7 - Build Node.js Application"
+    needs:
+      - quality-decision
+      - sonar
+
+    if: >
+      always() &&
+      needs.quality-decision.outputs.proceed_to_build == 'true' &&
+      needs.sonar.result == 'success'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        working-directory: app/node
+        run: npm ci
+
+      - name: Build actual Node.js application
+        working-directory: app/node
+        shell: bash
+        run: |
+          mkdir -p logs
+
+          npm run build:web 2>&1 | tee logs/application-build-console.log
+
+      - name: Verify application build
+        run: |
+          test -d app/node/dist/web
+
+          echo "::group::Generated Build Files"
+
+          find app/node/dist/web \
+            -type f \
+            -printf "%p | %s bytes\n"
+
+          echo "::endgroup::"
+
+      - name: Package application and generate checksum
+        shell: bash
+        run: |
+          mkdir -p packaged-build
+
+          PACKAGE_NAME="shipfast-node-${{ needs.quality-decision.outputs.build_version }}.tar.gz"
+
+          tar \
+            -czf "packaged-build/$PACKAGE_NAME" \
+            -C app/node/dist/web \
+            .
+
+          sha256sum \
+            "packaged-build/$PACKAGE_NAME" \
+            > "packaged-build/$PACKAGE_NAME.sha256"
+
+          echo "::group::Packaged Application"
+
+          ls -lh packaged-build/
+          cat "packaged-build/$PACKAGE_NAME.sha256"
+
+          echo "::endgroup::"
+
+      - name: Upload application build
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: application-build-${{ needs.quality-decision.outputs.build_version }}
+          path: packaged-build/
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+      - name: Upload application-build log
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: application-build-log-${{ github.run_id }}
+          path: app/node/logs/application-build-console.log
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+
+  logs:
+    name: "8 - Generate Diagnostic Logs"
+    needs:
+      - quality-decision
+      - sonar
+      - application-build
+
+    if: always() && needs.quality-decision.result == 'success'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Generate workflow diagnostic log
+        run: |
+          mkdir -p diagnostic-logs
+
+          {
+            echo "Workflow name   : $GITHUB_WORKFLOW"
+            echo "Workflow run ID : $GITHUB_RUN_ID"
+            echo "Run number      : $GITHUB_RUN_NUMBER"
+            echo "Commit SHA      : $GITHUB_SHA"
+            echo "Repository      : $GITHUB_REPOSITORY"
+            echo "Runner OS       : $RUNNER_OS"
+            echo "Build version   : ${{ needs.quality-decision.outputs.build_version }}"
+            echo "Sonar result    : ${{ needs.sonar.result }}"
+            echo "Build result    : ${{ needs.application-build.result }}"
+          } | tee diagnostic-logs/workflow.log
+
+      - name: Demonstrate grouped Actions logs
+        run: |
+          echo "::group::Day 5 Execution Results"
+
+          cat diagnostic-logs/workflow.log
+
+          echo "::endgroup::"
+
+      - name: Demonstrate log annotations
+        run: |
+          echo "::notice title=Reports::Actual lint, test and coverage reports were generated"
+          echo "::notice title=SonarQube::Sonar result is '${{ needs.sonar.result }}'"
+          echo "::notice title=Build::Application build result is '${{ needs.application-build.result }}'"
+          echo "::warning title=Training Demo::This warning is intentionally generated"
+
+      - name: Generate debug trace
+        run: |
+          {
+            echo "TRACE START"
+            echo "1. Actual ESLint executed"
+            echo "2. Actual unit tests executed"
+            echo "3. Actual integration tests executed"
+            echo "4. Actual Jest coverage generated"
+            echo "5. Actual job outputs evaluated"
+            echo "6. Actual SonarQube analysis executed"
+            echo "7. Actual application build executed"
+            echo "TRACE END"
+          } > diagnostic-logs/debug-trace.log
+
+      - name: Upload diagnostic logs
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: diagnostic-logs-${{ github.run_id }}
+          path: diagnostic-logs/
+          retention-days: ${{ fromJSON(env.ARTIFACT_RETENTION_DAYS) }}
+          if-no-files-found: error
+
+
+  artifact-review:
+    name: "9 - Download and Review Artifacts"
+    needs:
+      - quality-decision
+      - application-build
+      - logs
+
+    if: >
+      always() &&
+      needs.application-build.result == 'success' &&
+      needs.logs.result == 'success'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Download ESLint report
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: eslint-report-${{ github.run_id }}
+          path: downloaded/eslint-report/
+
+      - name: Download unit-test report
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: unit-test-report-${{ github.run_id }}
+          path: downloaded/unit-test-report/
+
+      - name: Download integration-test report
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: integration-test-report-${{ github.run_id }}
+          path: downloaded/integration-test-report/
+
+      - name: Download coverage report
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: coverage-report-${{ github.run_id }}
+          path: downloaded/coverage-report/
+
+      - name: Download application build
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: application-build-${{ needs.quality-decision.outputs.build_version }}
+          path: downloaded/application-build/
+
+      - name: Download diagnostic logs
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: diagnostic-logs-${{ github.run_id }}
+          path: downloaded/diagnostic-logs/
+
+      - name: Display all downloaded artifacts
+        run: |
+          echo "::group::Downloaded Artifacts"
+
+          find downloaded \
+            -type f \
+            -printf "%p | %s bytes\n"
+
+          echo "::endgroup::"
+
+      - name: Display actual unit-test report
+        run: |
+          echo "::group::Downloaded Unit-Test Report"
+          cat downloaded/unit-test-report/junit.xml
+          echo "::endgroup::"
+
+      - name: Display actual integration-test report
+        run: |
+          echo "::group::Downloaded Integration-Test Report"
+          cat downloaded/integration-test-report/junit.xml
+          echo "::endgroup::"
+
+      - name: Display actual coverage summary
+        run: |
+          echo "::group::Downloaded Coverage Summary"
+          cat downloaded/coverage-report/coverage-summary.json
+          echo "::endgroup::"
+
+      - name: Display diagnostic log
+        run: |
+          echo "::group::Downloaded Diagnostic Log"
+          cat downloaded/diagnostic-logs/workflow.log
+          echo "::endgroup::"
+
+      - name: Verify downloaded application checksum
+        working-directory: downloaded/application-build
+        run: |
+          echo "::group::Application Integrity Validation"
+
+          sha256sum -c ./*.sha256
+
+          echo "::endgroup::"
+
+      - name: Write final demonstration summary
+        run: |
+          {
+            echo "## Day 5 Actual Artifact Demonstration"
+            echo ""
+            echo "| Generated item | Type | Stored artifact |"
+            echo "|---|---|---|"
+            echo "| ESLint JSON | Lint report | Yes |"
+            echo "| Unit JUnit XML | Unit-test report | Yes |"
+            echo "| Integration JUnit XML | Integration-test report | Yes |"
+            echo "| LCOV file | Coverage report | Yes |"
+            echo "| Coverage percentage | Job output | No |"
+            echo "| Pipeline decision | Job output | No |"
+            echo "| Node application archive | Build artifact | Yes |"
+            echo "| SHA-256 file | Integrity metadata | Yes |"
+            echo "| Console output | Actions log | Automatically stored |"
+            echo "| workflow.log | Diagnostic artifact | Yes |"
+            echo ""
+            echo "Build version: ${{ needs.quality-decision.outputs.build_version }}"
+            echo ""
+            echo "Decision: ${{ needs.quality-decision.outputs.decision_reason }}"
+          } >> "$GITHUB_STEP_SUMMARY"
