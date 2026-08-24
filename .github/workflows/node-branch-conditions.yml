@@ -71,7 +71,7 @@ jobs:
   # 2. NPM DEPENDENCY AUDIT
   # ==========================================================
   security-sca:
-    name: npm Dependency Audit
+    name: Dependency Audit
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -813,7 +813,7 @@ jobs:
           find ci-evidence -maxdepth 6 -type f -print
           echo "::endgroup::"
 
-      - name: Write complete CI status summary
+      - name: Write complete CI status summary - Evidence
         shell: bash
         run: |
           status_icon() {
