@@ -943,7 +943,7 @@ jobs:
         run: |
           echo "::group::Downloaded Diagnostic Log"
           echo "Log file: downloaded/diagnostic-logs/${{ needs.logs.outputs.diagnostic_log_name }}"
-          cat "downloaded/diagnostic-logs/${{ needs.logs.outputs.diagnostic_log_name }}"
+          cat "downloaded/diagnostic-logs/${{ needs.outputs.diagnostic_log_name }}"
           echo "::endgroup::"
 
       - name: Verify downloaded application checksum
@@ -956,7 +956,7 @@ jobs:
           echo "Package file : ${{ needs.application-build.outputs.package_name }}"
           echo "Checksum file: ${{ needs.application-build.outputs.checksum_name }}"
 
-          test -f "${{ needs.application-build.outputs.package_name }}"
+          test -f "${{ needs.application-build.outputs.packagelogs._name }}"
           test -f "${{ needs.application-build.outputs.checksum_name }}"
 
           echo "Downloaded application files:"
@@ -970,7 +970,7 @@ jobs:
           echo "::notice title=Checksum Validation::Package '${{ needs.application-build.outputs.package_name }}' is valid"
           echo "::endgroup::"
 
-      - name: Write final demonstration summary
+      - name: Write final demonstration summary - updated
         shell: bash
         run: |
           {
