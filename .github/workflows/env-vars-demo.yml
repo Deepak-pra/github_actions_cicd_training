@@ -1,0 +1,33 @@
+name: Demo Config Files
+
+on:
+    push:
+        branches: [ dev, stage, main ]
+        paths:
+          - ".github/workflows/env-vars-demo.yml"
+ 
+          
+jobs:
+    deploy:
+        name: Deploy config data
+        runs-on: ubuntu-latest
+        environment: stage
+        
+        steps:
+            - name: Code Checkout
+              uses: actions/checkout@v6
+
+            - name: Show Branch and Environment
+              shell: sh
+              run: |
+                echo "Branch : ${{ github.ref_name }}"
+                
+            - name: Bucket name
+              if: github.ref_name == 'dev'
+              shell: sh
+              run: echo "Deploying to bucket ${{ vars.DEMO_BUCKET }}"
+
+            - name: Bucket name
+              if: github.ref_name == 'stage'    
+              shell: sh
+              run: echo "Deploying to bucket ${{ vars.DEMO_BUCKET }}"  
