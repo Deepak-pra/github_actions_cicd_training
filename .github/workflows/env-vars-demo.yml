@@ -25,7 +25,7 @@ jobs:
             - name: Bucket name
               if: github.ref_name == 'dev'
               shell: sh
-              run: echo "Deploying to bucket ${{ vars.S3_BUCKET }}"
+              run: echo "Deploying to bucket ${{ vars.DEMO_BUCKET }}"
 
             - name: Bucket name
               if: github.ref_name == 'stage'    
