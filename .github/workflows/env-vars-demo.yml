@@ -10,7 +10,7 @@ on:
 jobs:
     deploy:
         name: Deploy config data
-        runs-on: windows-latest
+        runs-on: ubuntu-latest
         
         steps:
             - name: Code Checkout
