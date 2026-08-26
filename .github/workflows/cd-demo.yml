@@ -101,7 +101,7 @@ jobs:
           role-to-assume: ${{ vars.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
 
-      - name: Publish artifact to PROD S3 bucket test
+      - name: Publish artifact to PROD S3 bucket
         run: |
           aws s3 cp \
             "${ARTIFACT_NAME}" \
