@@ -12,6 +12,9 @@ permissions:
   id-token: write
 
 jobs:
+  # ============================================================
+  # DEV BRANCH -> DEV ENVIRONMENT -> DEV S3 BUCKET
+  # ============================================================
   deploy-dev:
     name: Deploy artifact to DEV
     if: github.ref_name == 'dev'
@@ -19,11 +22,15 @@ jobs:
     environment: dev
 
     steps:
-      - name: Generate versioned artifact
+      - name: Generate versioned DEV artifact
+        shell: bash
         run: |
+          set -euo pipefail
+
           ARTIFACT_NAME="node-app-v1.0.${GITHUB_RUN_NUMBER}-dev.zip"
 
-          mkdir package
+          mkdir -p package
+
           echo "Version: 1.0.${GITHUB_RUN_NUMBER}" > package/version.txt
           echo "Environment: dev" >> package/version.txt
 
@@ -31,19 +38,57 @@ jobs:
 
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
 
+      - name: Validate AWS configuration
+        shell: bash
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_ROLE_ARN}" ]; then
+            echo "::error::AWS_ROLE_ARN is empty or unavailable"
+            exit 1
+          fi
+
+          if [[ "${AWS_ROLE_ARN}" != arn:aws:iam::*:role/* ]]; then
+            echo "::error::AWS_ROLE_ARN is not a valid IAM Role ARN"
+            exit 1
+          fi
+
+          if [ -z "${AWS_REGION}" ]; then
+            echo "::error::AWS_REGION is empty or unavailable"
+            exit 1
+          fi
+
+          if [ -z "${S3_BUCKET_NAME}" ]; then
+            echo "::error::S3_BUCKET_NAME is empty or unavailable"
+            exit 1
+          fi
+
+          echo "AWS configuration is available"
+
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-training-dev-${{ github.run_id }}
 
       - name: Publish artifact to DEV S3 bucket
+        shell: bash
         run: |
+          set -euo pipefail
+
           aws s3 cp \
             "${ARTIFACT_NAME}" \
-            "s3://my-app-dev-bucket/${ARTIFACT_NAME}"
+            "s3://${{ vars.S3_BUCKET_NAME }}/${ARTIFACT_NAME}"
 
 
+  # ============================================================
+  # STAGE BRANCH -> STAGE ENVIRONMENT -> STAGE S3 BUCKET
+  # ============================================================
   deploy-stage:
     name: Deploy artifact to STAGE
     if: github.ref_name == 'stage'
@@ -51,11 +96,15 @@ jobs:
     environment: stage
 
     steps:
-      - name: Generate versioned artifact
+      - name: Generate versioned STAGE artifact
+        shell: bash
         run: |
+          set -euo pipefail
+
           ARTIFACT_NAME="node-app-v1.0.${GITHUB_RUN_NUMBER}-stage.zip"
 
-          mkdir package
+          mkdir -p package
+
           echo "Version: 1.0.${GITHUB_RUN_NUMBER}" > package/version.txt
           echo "Environment: stage" >> package/version.txt
 
@@ -63,19 +112,57 @@ jobs:
 
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
 
+      - name: Validate AWS configuration
+        shell: bash
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_ROLE_ARN}" ]; then
+            echo "::error::AWS_ROLE_ARN is empty or unavailable"
+            exit 1
+          fi
+
+          if [[ "${AWS_ROLE_ARN}" != arn:aws:iam::*:role/* ]]; then
+            echo "::error::AWS_ROLE_ARN is not a valid IAM Role ARN"
+            exit 1
+          fi
+
+          if [ -z "${AWS_REGION}" ]; then
+            echo "::error::AWS_REGION is empty or unavailable"
+            exit 1
+          fi
+
+          if [ -z "${S3_BUCKET_NAME}" ]; then
+            echo "::error::S3_BUCKET_NAME is empty or unavailable"
+            exit 1
+          fi
+
+          echo "AWS configuration is available"
+
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-training-stage-${{ github.run_id }}
 
       - name: Publish artifact to STAGE S3 bucket
+        shell: bash
         run: |
+          set -euo pipefail
+
           aws s3 cp \
             "${ARTIFACT_NAME}" \
-            "s3://my-app-stage-bucket/${ARTIFACT_NAME}"
+            "s3://${{ vars.S3_BUCKET_NAME }}/${ARTIFACT_NAME}"
 
 
+  # ============================================================
+  # MAIN BRANCH -> PROD ENVIRONMENT -> PROD S3 BUCKET
+  # ============================================================
   deploy-prod:
     name: Deploy artifact to PROD
     if: github.ref_name == 'main'
@@ -83,11 +170,15 @@ jobs:
     environment: prod
 
     steps:
-      - name: Generate versioned artifact
+      - name: Generate versioned PROD artifact
+        shell: bash
         run: |
+          set -euo pipefail
+
           ARTIFACT_NAME="node-app-v1.0.${GITHUB_RUN_NUMBER}-prod.zip"
 
-          mkdir package
+          mkdir -p package
+
           echo "Version: 1.0.${GITHUB_RUN_NUMBER}" > package/version.txt
           echo "Environment: prod" >> package/version.txt
 
@@ -95,14 +186,49 @@ jobs:
 
           echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
 
+      - name: Validate AWS configuration
+        shell: bash
+        env:
+          AWS_ROLE_ARN: ${{ secrets.AWS_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ vars.S3_BUCKET_NAME }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${AWS_ROLE_ARN}" ]; then
+            echo "::error::AWS_ROLE_ARN is empty or unavailable"
+            exit 1
+          fi
+
+          if [[ "${AWS_ROLE_ARN}" != arn:aws:iam::*:role/* ]]; then
+            echo "::error::AWS_ROLE_ARN is not a valid IAM Role ARN"
+            exit 1
+          fi
+
+          if [ -z "${AWS_REGION}" ]; then
+            echo "::error::AWS_REGION is empty or unavailable"
+            exit 1
+          fi
+
+          if [ -z "${S3_BUCKET_NAME}" ]; then
+            echo "::error::S3_BUCKET_NAME is empty or unavailable"
+            exit 1
+          fi
+
+          echo "AWS configuration is available"
+
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-training-prod-${{ github.run_id }}
 
       - name: Publish artifact to PROD S3 bucket
+        shell: bash
         run: |
+          set -euo pipefail
+
           aws s3 cp \
             "${ARTIFACT_NAME}" \
-            "s3://my-app-prod-bucket/${ARTIFACT_NAME}"
+            "s3://${{ vars.S3_BUCKET_NAME }}/${ARTIFACT_NAME}"
