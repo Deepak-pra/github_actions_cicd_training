@@ -1,0 +1,108 @@
+name: Demo7 - CD Versioned Artifact to S3
+
+on:
+  push:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/cd-demo.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy-dev:
+    name: Deploy artifact to DEV
+    if: github.ref_name == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev
+
+    steps:
+      - name: Generate versioned artifact
+        run: |
+          ARTIFACT_NAME="node-app-v1.0.${GITHUB_RUN_NUMBER}-dev.zip"
+
+          mkdir package
+          echo "Version: 1.0.${GITHUB_RUN_NUMBER}" > package/version.txt
+          echo "Environment: dev" >> package/version.txt
+
+          zip -r "${ARTIFACT_NAME}" package
+
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish artifact to DEV S3 bucket
+        run: |
+          aws s3 cp \
+            "${ARTIFACT_NAME}" \
+            "s3://my-app-dev-bucket/${ARTIFACT_NAME}"
+
+
+  deploy-stage:
+    name: Deploy artifact to STAGE
+    if: github.ref_name == 'stage'
+    runs-on: ubuntu-latest
+    environment: stage
+
+    steps:
+      - name: Generate versioned artifact
+        run: |
+          ARTIFACT_NAME="node-app-v1.0.${GITHUB_RUN_NUMBER}-stage.zip"
+
+          mkdir package
+          echo "Version: 1.0.${GITHUB_RUN_NUMBER}" > package/version.txt
+          echo "Environment: stage" >> package/version.txt
+
+          zip -r "${ARTIFACT_NAME}" package
+
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish artifact to STAGE S3 bucket
+        run: |
+          aws s3 cp \
+            "${ARTIFACT_NAME}" \
+            "s3://my-app-stage-bucket/${ARTIFACT_NAME}"
+
+
+  deploy-prod:
+    name: Deploy artifact to PROD
+    if: github.ref_name == 'main'
+    runs-on: ubuntu-latest
+    environment: prod
+
+    steps:
+      - name: Generate versioned artifact
+        run: |
+          ARTIFACT_NAME="node-app-v1.0.${GITHUB_RUN_NUMBER}-prod.zip"
+
+          mkdir package
+          echo "Version: 1.0.${GITHUB_RUN_NUMBER}" > package/version.txt
+          echo "Environment: prod" >> package/version.txt
+
+          zip -r "${ARTIFACT_NAME}" package
+
+          echo "ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Authenticate to AWS using OIDC
+        uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Publish artifact to PROD S3 bucket
+        run: |
+          aws s3 cp \
+            "${ARTIFACT_NAME}" \
+            "s3://my-app-prod-bucket/${ARTIFACT_NAME}"
