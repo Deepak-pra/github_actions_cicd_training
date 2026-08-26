@@ -1,0 +1,33 @@
+name: Demo Config Files
+
+on:
+    push:
+        branches: [ dev, stage, main ]
+        paths:
+          - "app/node/***"
+          - ".github/workflows/env-vars-demo.yml"
+        
+jobs:
+    deploy:
+        name: Deploy config data
+        runs-on: windows-latest
+        
+        steps:
+            - name: Code Checkout
+              uses: actions/checkout@v6
+
+            - name: Show Branch and Environment
+              shell: sh
+              run: |
+                echo "Branch : ${{ github.ref_name }}"
+                echo "Environment : ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}"
+                
+            - name: Bucket name
+              if: github.ref_name == 'dev'    
+              shell: sh
+              run: echo "Deploying to bucket ${{ vars.S3_BUCKET }}"
+
+            - name: Bucket name
+              if: github.ref_name == 'dev'    
+              shell: sh
+              run: echo "Deploying to bucket ${{ vars.DEMO_BUCKET }}"  
