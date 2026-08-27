@@ -16,7 +16,7 @@ jobs:
   quality-gates:
     name: Code Quality Gates
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     defaults:
       run:
