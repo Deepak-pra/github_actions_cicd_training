@@ -100,6 +100,8 @@ jobs:
 
       - name: Scan OCI image with Trivy
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DISABLE_VEX_NOTICE: "true"
         with:
           image-ref: node-oci-demo:${{ github.sha }}
           format: table
