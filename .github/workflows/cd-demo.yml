@@ -263,7 +263,7 @@ jobs:
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: gha-training-prod-${{ github.run_id }}
 
-      - name: Publish artifact to PROD S3 bucket test
+      - name: Publish artifact to PROD S3 bucket
         shell: bash
         run: |
           set -euo pipefail
