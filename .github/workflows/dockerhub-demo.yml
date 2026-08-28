@@ -3,7 +3,9 @@ name: Demo8 - Node Validation and Publish to Docker Hub
 on:
   push:
     branches:
-      - main
+      - dev
+      - stage
+      - main  
     paths:
       - "app/node/**"
       - ".github/workflows/dockerhub-demo.yml"
