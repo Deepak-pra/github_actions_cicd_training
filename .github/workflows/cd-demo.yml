@@ -111,7 +111,7 @@ jobs:
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::637423369012:role/GitHubActionsTrainingS3Role
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: gha-training-dev-${{ github.run_id }}
 
@@ -185,7 +185,7 @@ jobs:
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::637423369012:role/GitHubActionsTrainingS3Role
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: gha-training-stage-${{ github.run_id }}
 
@@ -259,7 +259,7 @@ jobs:
       - name: Authenticate to AWS using OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
-          role-to-assume: arn:aws:iam::637423369012:role/GitHubActionsTrainingS3Role
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
           role-session-name: gha-training-prod-${{ github.run_id }}
 

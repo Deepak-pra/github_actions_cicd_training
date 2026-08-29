@@ -1,0 +1,13 @@
+node_modules
+coverage
+reports
+dist
+*.log
+.git
+.github
+__tests__
+scripts
+sonar-project.properties
+jest.config.js
+.eslintrc.json
+README*

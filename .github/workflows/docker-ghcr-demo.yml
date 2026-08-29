@@ -1,0 +1,132 @@
+name: Demo8 - Node Validation and Publish to GHCR
+
+on:
+  push:
+    branches:
+      - dev
+    paths:
+      - "app/node/**"
+      - ".github/workflows/docker-ghcr-demo.yml"
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  quality-gates:
+    name: Code Quality Gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    defaults:
+      run:
+        working-directory: app/node
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        run: npm run lint
+
+      - name: Run unit tests
+        run: npm run test:unit
+
+      - name: Run integration tests
+        run: npm run test:integration
+
+      - name: Generate test coverage
+        run: npm run test:coverage
+
+      - name: Run SonarQube Cloud scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          projectBaseDir: app/node
+          args: >
+            -Dsonar.qualitygate.wait=true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        continue-on-error: true  
+
+
+  build-scan-publish:
+    name: Build, Scan and Publish OCI Image to GHCR
+    needs: quality-gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set image version and name
+        shell: bash
+        run: |
+          echo "IMAGE_VERSION=1.0.${GITHUB_RUN_NUMBER}" >> "${GITHUB_ENV}"
+          echo "LOCAL_IMAGE=node-oci-demo:${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/node-oci-demo" >> "${GITHUB_ENV}"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build OCI image locally
+        uses: docker/build-push-action@v6
+        with:
+          context: app/node
+          file: app/node/Dockerfile
+          load: true
+          push: false
+          tags: node-oci-demo:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.title=node-oci-demo
+            org.opencontainers.image.description=Node.js OCI image demo
+            org.opencontainers.image.version=1.0.${{ github.run_number }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          build-args: |
+            APP_VERSION=1.0.${{ github.run_number }}
+
+      - name: Scan OCI image with Trivy
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DISABLE_VEX_NOTICE: "true"
+        with:
+          image-ref: node-oci-demo:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag and publish image to GHCR
+        shell: bash
+        run: |
+          docker tag \
+            "${LOCAL_IMAGE}" \
+            "${GHCR_IMAGE}:${IMAGE_VERSION}"
+
+          docker tag \
+            "${LOCAL_IMAGE}" \
+            "${GHCR_IMAGE}:latest"
+
+          docker push "${GHCR_IMAGE}:${IMAGE_VERSION}"
+          docker push "${GHCR_IMAGE}:latest"
