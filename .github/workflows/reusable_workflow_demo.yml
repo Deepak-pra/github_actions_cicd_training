@@ -5,11 +5,18 @@ on:
     branches: [dev, stage, main]
     paths:
       - "app/node/**"
-      - ".github/workflows/reusable_workflow_demo"
+      - ".github/workflows/reusable_workflow_demo.yml"
+      - ".github/workflows/reusable-ci.yml"
+      - ".github/workflows/reusable-cd.yml"
 
+# Caller caps the token for ALL called workflows.
+# CI pushes to GHCR -> needs packages: write
+# CD uses AWS OIDC   -> needs id-token: write
 permissions:
   contents: read
+  packages: write
   id-token: write
+
 jobs:
   ci:
     name: CI
@@ -21,6 +28,5 @@ jobs:
     needs: ci
     uses: ./.github/workflows/reusable-cd.yml
     with:
-      # dev -> dev, stage -> stage, main -> prod
       environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
     secrets: inherit
