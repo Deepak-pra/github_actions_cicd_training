@@ -12,8 +12,6 @@ on:
       - ".github/workflows/reusable-ci.yml"
       - ".github/workflows/reusable-cd.yml"
 
-# These permissions are the maximum permissions available
-# to the reusable workflows called from this workflow.
 permissions:
   contents: read
   packages: write
@@ -31,4 +29,5 @@ jobs:
     uses: ./.github/workflows/reusable-cd.yml
     with:
       environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+      image_version: ${{ needs.ci.outputs.image_version }}
     secrets: inherit
