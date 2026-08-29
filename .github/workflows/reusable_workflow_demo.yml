@@ -1,23 +1,15 @@
 name: Reusable Workflow Demo
 
 on:
-  workflow_dispatch:
-    inputs:
-      run_cd:
-        description: "Run CD after CI?"
-        type: boolean
-        required: false
-        default: false
-      environment:
-        description: "Target environment for CD"
-        type: choice
-        required: true
-        options:
-          - dev
-          - stage
-          - prod
-        default: dev
+  push:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/reusable_workflow_demo"
 
+permissions:
+  contents: read
+  id-token: write
 jobs:
   ci:
     name: CI
@@ -27,8 +19,8 @@ jobs:
   cd:
     name: CD
     needs: ci
-    if: ${{ inputs.run_cd == true }}
     uses: ./.github/workflows/reusable-cd.yml
     with:
-      environment: ${{ inputs.environment }}
+      # dev -> dev, stage -> stage, main -> prod
+      environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
     secrets: inherit
