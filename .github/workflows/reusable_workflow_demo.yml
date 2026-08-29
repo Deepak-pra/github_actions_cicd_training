@@ -2,16 +2,18 @@ name: Reusable Workflow Demo
 
 on:
   push:
-    branches: [dev, stage, main]
+    branches:
+      - dev
+      - stage
+      - main
     paths:
       - "app/node/**"
       - ".github/workflows/reusable_workflow_demo.yml"
       - ".github/workflows/reusable-ci.yml"
       - ".github/workflows/reusable-cd.yml"
 
-# Caller caps the token for ALL called workflows.
-# CI pushes to GHCR -> needs packages: write
-# CD uses AWS OIDC   -> needs id-token: write
+# These permissions are the maximum permissions available
+# to the reusable workflows called from this workflow.
 permissions:
   contents: read
   packages: write
