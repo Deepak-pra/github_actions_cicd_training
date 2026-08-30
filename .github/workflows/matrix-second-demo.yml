@@ -1,0 +1,70 @@
+name: Matrix Demo
+
+on:
+  push:
+    branches: [ dev, stage, main ]
+    paths:
+          - ".github/workflows/matrix-second-demo.yml"
+
+jobs:
+  ci-matrix:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        working-directory: app/node
+
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+
+      matrix:
+        node: [20, 22, 24]
+        os: [ubuntu-latest, windows-latest]
+
+        # remove specific combinations
+        exclude:
+          - node: 20
+            os: windows-latest
+
+        # add data to an existing combo, and add a brand-new combo
+        include:
+          # mark Node 24 on ubuntu as experimental
+          - node: 24
+            os: ubuntu-latest
+            experimental: true
+
+          # add a completely new combo not in the base arrays
+          - node: 24
+            os: macos-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js ${{ matrix.node }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm run test:unit
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Show combination summary
+        shell: bash
+        run: |
+          echo "Node version : ${{ matrix.node }}"
+          echo "OS           : ${{ matrix.os }}"
+          echo "Experimental : ${{ matrix.experimental }}"

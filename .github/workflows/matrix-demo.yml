@@ -1,0 +1,53 @@
+name: Matrix Demo
+
+on:
+  push:
+    branches: [ dev, stage, main ]
+    paths:
+          - ".github/workflows/matrix-demo.yml"
+
+jobs:
+  matrix-demo:
+    name: Node ${{ matrix.node }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # false = let every combination finish, even if one fails
+      fail-fast: false
+
+      # run at most 2 combinations at the same time
+      max-parallel: 2
+
+      matrix:
+        node: [18, 20, 22]
+        os: [ubuntu-latest, windows-latest]
+
+        # remove specific combinations
+        exclude:
+          - node: 18
+            os: windows-latest
+
+        # add extra data to an existing combination,
+        # and add a brand-new combination
+        include:
+          # adds a flag to an existing combo (node 22 on ubuntu)
+          - node: 22
+            os: ubuntu-latest
+            experimental: true
+
+          # adds a completely new combo not in the base arrays
+          - node: 21
+            os: ubuntu-latest
+
+    steps:
+      - name: Show this combination
+        shell: bash
+        run: |
+          echo "Node version : ${{ matrix.node }}"
+          echo "OS           : ${{ matrix.os }}"
+          echo "Experimental : ${{ matrix.experimental }}"
+
+      - name: Run only for experimental combos
+        if: ${{ matrix.experimental == true }}
+        shell: bash
+        run: echo "This step runs only for the experimental combination."
