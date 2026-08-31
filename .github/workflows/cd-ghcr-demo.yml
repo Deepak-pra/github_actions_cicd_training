@@ -1,0 +1,41 @@
+name: CD
+
+on:
+  push:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/cd-ghcr-demo.yml"
+
+permissions:
+  contents: read
+  packages: read
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+
+    steps:
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull image from GHCR by commit SHA
+        run: docker pull ghcr.io/${{ github.repository_owner }}/node-app:${{ github.sha }}
+
+      - name: Save image as tar
+        run: docker save ghcr.io/${{ github.repository_owner }}/node-app:${{ github.sha }} -o node-app.tar
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload image to S3
+        run: aws s3 cp node-app.tar s3://${{ vars.S3_BUCKET_NAME }}/node-app-${{ github.sha }}.tar
