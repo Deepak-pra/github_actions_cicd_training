@@ -3,7 +3,9 @@ name: Demo Workflow
 on:
   pull_request:
     branches: [ dev, stage, main ]  
-
+    paths:
+      - ".github/workflows/pull_request.yml"
+        
 permissions:
   contents: read
 

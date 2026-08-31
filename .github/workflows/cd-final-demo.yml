@@ -1,0 +1,58 @@
+name: CD
+
+on:
+  push:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/cd-final-demo.yml"
+      - "github/workflows/ci-final-demo.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  deploy:
+    name: Download Artifact and Upload to S3
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+
+    steps:
+      - name: Resolve environment and release tag
+        id: meta
+        run: |
+          case "${{ github.ref_name }}" in
+            dev)   ENV_NAME="dev" ;;
+            stage) ENV_NAME="stage" ;;
+            main)  ENV_NAME="prod" ;;
+          esac
+          echo "env=${ENV_NAME}"          >> "$GITHUB_OUTPUT"
+          echo "tag=node-app-${ENV_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Environment: ${ENV_NAME}"
+          echo "Release tag: node-app-${ENV_NAME}"
+
+      - name: Download artifact from the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ steps.meta.outputs.tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "node-app.tar" \
+            --pattern "SHA256SUMS.txt"
+          echo "Verifying checksum:"
+          sha256sum -c SHA256SUMS.txt
+          ls -lh node-app.tar
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Upload artifact to environment S3 bucket
+        run: |
+          aws s3 cp node-app.tar \
+            "s3://${{ vars.S3_BUCKET_NAME }}/${{ steps.meta.outputs.tag }}.tar"
