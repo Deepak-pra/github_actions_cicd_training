@@ -6,6 +6,7 @@ on:
     paths:
       - "app/node/**"
       - ".github/workflows/cd-ghcr-demo.yml"
+      - ".github/workflows/ci-ghcr-demo.yml"
 
 permissions:
   contents: read
