@@ -19,6 +19,7 @@ defaults:
     shell: bash
 
 jobs:
+  # ---------- 0. Resolve env + dynamic version ----------
   meta:
     name: Resolve Version and Environment
     runs-on: ubuntu-latest
@@ -68,6 +69,7 @@ jobs:
             echo "| Triggered by | \`${{ github.actor }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 1. Lint ----------
   lint:
     name: Lint
     needs: meta
@@ -92,6 +94,7 @@ jobs:
         working-directory: .
         run: echo "### Lint — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 2. Unit tests ----------
   unit-test:
     name: Unit Test
     needs: meta
@@ -116,6 +119,7 @@ jobs:
         working-directory: .
         run: echo "### Unit Tests — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 3. Integration tests ----------
   integration-test:
     name: Integration Test
     needs: meta
@@ -140,6 +144,7 @@ jobs:
         working-directory: .
         run: echo "### Integration Tests — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 4. SonarQube ----------
   sonar:
     name: SonarQube Scan
     needs: meta
@@ -161,6 +166,7 @@ jobs:
         if: always()
         run: echo "### SonarQube Scan — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 5. Build OCI image + save artifact ----------
   build:
     name: Build Docker Image
     needs: [meta, lint, unit-test, integration-test, sonar]
@@ -229,6 +235,7 @@ jobs:
             echo "| OCI version label | \`${{ needs.meta.outputs.version }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 6. Trivy scan (gate) ----------
   trivy:
     name: Trivy Security Scan
     needs: [meta, build]
@@ -273,12 +280,12 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          set -euo pipefail
+          set -uo pipefail
           CRIT=0; HIGH=0; MED=0
           if [ -f trivy.json ]; then
-            CRIT=$(grep -o '"Severity":"CRITICAL"' trivy.json | wc -l | tr -d ' ')
-            HIGH=$(grep -o '"Severity":"HIGH"'     trivy.json | wc -l | tr -d ' ')
-            MED=$(grep -o '"Severity":"MEDIUM"'    trivy.json | wc -l | tr -d ' ')
+            CRIT=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy.json 2>/dev/null || echo 0)
+            HIGH=$(jq '[.Results[].Vulnerabilities[]? | select(.Severity=="HIGH")]     | length' trivy.json 2>/dev/null || echo 0)
+            MED=$(jq  '[.Results[].Vulnerabilities[]? | select(.Severity=="MEDIUM")]   | length' trivy.json 2>/dev/null || echo 0)
           fi
           {
             echo "## Trivy Security Scan"
@@ -292,6 +299,7 @@ jobs:
             echo "Gate: \`${{ job.status }}\` — build fails if any CRITICAL is found."
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # ---------- 7. Publish to GitHub Release ----------
   release:
     name: Publish Artifact to GitHub Release
     needs: [meta, build, trivy]
