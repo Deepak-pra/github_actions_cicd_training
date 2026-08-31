@@ -18,6 +18,10 @@ jobs:
     environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
 
     steps:
+      - name: Set image variables
+        id: vars
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/node-app" >> "$GITHUB_OUTPUT"
+
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -26,10 +30,10 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Pull image from GHCR by commit SHA
-        run: docker pull ghcr.io/${{ github.repository_owner }}/node-app:${{ github.sha }}
+        run: docker pull ${{ steps.vars.outputs.image }}:${{ github.sha }}
 
       - name: Save image as tar
-        run: docker save ghcr.io/${{ github.repository_owner }}/node-app:${{ github.sha }} -o node-app.tar
+        run: docker save ${{ steps.vars.outputs.image }}:${{ github.sha }} -o node-app.tar
 
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4

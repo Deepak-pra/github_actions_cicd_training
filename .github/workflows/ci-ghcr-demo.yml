@@ -24,9 +24,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set image SHA (PR head commit)
+      - name: Set image variables
         id: vars
-        run: echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/node-app" >> "$GITHUB_OUTPUT"
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -77,5 +79,5 @@ jobs:
 
       - name: Tag and push to GHCR by commit SHA
         run: |
-          docker tag node-app:${{ steps.vars.outputs.sha }} ghcr.io/${{ github.repository_owner }}/node-app:${{ steps.vars.outputs.sha }}
-          docker push ghcr.io/${{ github.repository_owner }}/node-app:${{ steps.vars.outputs.sha }}
+          docker tag node-app:${{ steps.vars.outputs.sha }} ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.sha }}
+          docker push ${{ steps.vars.outputs.image }}:${{ steps.vars.outputs.sha }}
