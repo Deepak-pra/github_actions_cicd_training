@@ -35,7 +35,6 @@ jobs:
             os: ubuntu-latest
             experimental: true
 
-          # add a completely new combo not in the base arrays
           - node: 24
             os: macos-latest
 
