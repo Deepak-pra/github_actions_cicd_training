@@ -19,7 +19,6 @@ defaults:
     shell: bash
 
 jobs:
-  # ---------- 0. Resolve env + dynamic version ----------
   meta:
     name: Resolve Version and Environment
     runs-on: ubuntu-latest
@@ -34,19 +33,18 @@ jobs:
       - name: Compute version, env and tags
         id: v
         run: |
-          set -euo pipefail
+          set -uo pipefail
           case "${{ github.base_ref }}" in
             dev)   ENV_NAME="dev" ;;
             stage) ENV_NAME="stage" ;;
             main)  ENV_NAME="prod" ;;
-            *) echo "Unsupported base branch"; exit 1 ;;
+            *) echo "::error::Unsupported base branch"; exit 1 ;;
           esac
           SHORT_SHA="${{ github.event.pull_request.head.sha }}"
           SHORT_SHA="${SHORT_SHA:0:7}"
           VERSION="1.0.${GITHUB_RUN_NUMBER}"
           IMAGE_TAG="${VERSION}-${ENV_NAME}-${SHORT_SHA}"
           RELEASE_TAG="node-app-${IMAGE_TAG}"
-
           echo "env_name=${ENV_NAME}"      >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}"        >> "$GITHUB_OUTPUT"
           echo "image_tag=${IMAGE_TAG}"    >> "$GITHUB_OUTPUT"
@@ -69,7 +67,6 @@ jobs:
             echo "| Triggered by | \`${{ github.actor }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 1. Lint ----------
   lint:
     name: Lint
     needs: meta
@@ -94,7 +91,6 @@ jobs:
         working-directory: .
         run: echo "### Lint — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 2. Unit tests ----------
   unit-test:
     name: Unit Test
     needs: meta
@@ -119,7 +115,6 @@ jobs:
         working-directory: .
         run: echo "### Unit Tests — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 3. Integration tests ----------
   integration-test:
     name: Integration Test
     needs: meta
@@ -144,7 +139,6 @@ jobs:
         working-directory: .
         run: echo "### Integration Tests — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 4. SonarQube ----------
   sonar:
     name: SonarQube Scan
     needs: meta
@@ -166,7 +160,6 @@ jobs:
         if: always()
         run: echo "### SonarQube Scan — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 5. Build OCI image + save artifact ----------
   build:
     name: Build Docker Image
     needs: [meta, lint, unit-test, integration-test, sonar]
@@ -178,10 +171,8 @@ jobs:
       digest: ${{ steps.save.outputs.digest }}
     steps:
       - uses: actions/checkout@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Build OCI image (load locally, no push)
         uses: docker/build-push-action@v6
         with:
@@ -198,18 +189,16 @@ jobs:
             org.opencontainers.image.version=${{ needs.meta.outputs.version }}
             org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-
       - name: Save image as tar + checksum
         id: save
         run: |
-          set -euo pipefail
+          set -uo pipefail
           docker save node-app:${{ needs.meta.outputs.image_tag }} -o node-app.tar
           sha256sum node-app.tar > SHA256SUMS.txt
           DIGEST="$(cut -d' ' -f1 SHA256SUMS.txt)"
           SIZE="$(du -h node-app.tar | cut -f1)"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "size=${SIZE}"     >> "$GITHUB_OUTPUT"
-
       - name: Upload image artifact (run-scoped)
         uses: actions/upload-artifact@v4
         with:
@@ -219,7 +208,6 @@ jobs:
             SHA256SUMS.txt
           retention-days: 7
           if-no-files-found: error
-
       - name: Summary
         if: always()
         run: |
@@ -235,7 +223,6 @@ jobs:
             echo "| OCI version label | \`${{ needs.meta.outputs.version }}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 6. Trivy scan (gate) ----------
   trivy:
     name: Trivy Security Scan
     needs: [meta, build]
@@ -248,13 +235,11 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app-${{ needs.meta.outputs.image_tag }}
-
       - name: Load image from tar
         run: |
-          set -euo pipefail
+          set -uo pipefail
           sha256sum -c SHA256SUMS.txt
           docker load -i node-app.tar
-
       - name: Trivy scan (table, gate on CRITICAL)
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -264,7 +249,6 @@ jobs:
           ignore-unfixed: true
           vuln-type: "os,library"
           severity: "CRITICAL"
-
       - name: Trivy report for summary (JSON, non-gating)
         if: always()
         uses: aquasecurity/trivy-action@v0.36.0
@@ -276,7 +260,6 @@ jobs:
           ignore-unfixed: true
           vuln-type: "os,library"
           severity: "CRITICAL,HIGH,MEDIUM"
-
       - name: Summary
         if: always()
         run: |
@@ -299,12 +282,11 @@ jobs:
             echo "Gate: \`${{ job.status }}\` — build fails if any CRITICAL is found."
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # ---------- 7. Publish to GitHub Release ----------
   release:
     name: Publish Artifact to GitHub Release
     needs: [meta, build, trivy]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
@@ -312,10 +294,8 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: node-app-${{ needs.meta.outputs.image_tag }}
-
       - name: Verify checksum before publishing
         run: sha256sum -c SHA256SUMS.txt
-
       - name: Publish to GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -323,7 +303,7 @@ jobs:
           VERSION: ${{ needs.meta.outputs.version }}
           ENV_NAME: ${{ needs.meta.outputs.env_name }}
         run: |
-          set -euo pipefail
+          set -uo pipefail
           if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" node-app.tar SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
           else
@@ -333,7 +313,6 @@ jobs:
               --notes "Docker image artifact. version=${VERSION} env=${ENV_NAME} tag=${RELEASE_TAG}" \
               --prerelease
           fi
-
       - name: Summary
         if: always()
         run: |
