@@ -1,0 +1,62 @@
+name: Composite Custom Action Demo
+
+on:
+  push:
+    branches:
+      - dev
+      - stage
+      - main
+
+    paths:
+      - "app/node/**"
+      - ".github/actions/ci/**"
+      - ".github/actions/cd/**"
+      - ".github/workflows/custom_action_demo.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    outputs:
+      image_version: ${{ steps.ci_action.outputs.image_version }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run CI composite action
+        id: ci_action
+        uses: ./.github/actions/ci
+        with:
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+  cd:
+    name: CD
+    needs: ci
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    environment: ${{ github.ref_name == 'main' && 'prod' || github.ref_name }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run CD composite action
+        uses: ./.github/actions/cd
+        with:
+          dockerhub_username: ${{ secrets.DOCKERHUB_USERNAME }}
+          dockerhub_token: ${{ secrets.DOCKERHUB_TOKEN }}
+          image_version: ${{ needs.ci.outputs.image_version }}
+
+          aws_role_arn: ${{ secrets.AWS_ROLE_ARN }}
+          aws_region: ${{ vars.AWS_REGION }}
+          s3_bucket_name: ${{ vars.S3_BUCKET_NAME }}
