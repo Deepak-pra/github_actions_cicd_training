@@ -1,0 +1,350 @@
+name: CI Full Demo
+
+on:
+  pull_request:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/ci-full-demo.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  meta:
+    name: Resolve Version and Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      env_name: ${{ steps.v.outputs.env_name }}
+      version: ${{ steps.v.outputs.version }}
+      image_tag: ${{ steps.v.outputs.image_tag }}
+      release_tag: ${{ steps.v.outputs.release_tag }}
+      short_sha: ${{ steps.v.outputs.short_sha }}
+    steps:
+      - name: Compute version, env and tags
+        id: v
+        run: |
+          set -euo pipefail
+          case "${{ github.base_ref }}" in
+            dev)   ENV_NAME="dev" ;;
+            stage) ENV_NAME="stage" ;;
+            main)  ENV_NAME="prod" ;;
+            *) echo "Unsupported base branch"; exit 1 ;;
+          esac
+          SHORT_SHA="${{ github.event.pull_request.head.sha }}"
+          SHORT_SHA="${SHORT_SHA:0:7}"
+          VERSION="1.0.${GITHUB_RUN_NUMBER}"
+          IMAGE_TAG="${VERSION}-${ENV_NAME}-${SHORT_SHA}"
+          RELEASE_TAG="node-app-${IMAGE_TAG}"
+
+          echo "env_name=${ENV_NAME}"      >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}"        >> "$GITHUB_OUTPUT"
+          echo "image_tag=${IMAGE_TAG}"    >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}">> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHORT_SHA}"    >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          {
+            echo "## Build Metadata"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Environment | \`${{ steps.v.outputs.env_name }}\` |"
+            echo "| Version | \`${{ steps.v.outputs.version }}\` |"
+            echo "| Image tag | \`${{ steps.v.outputs.image_tag }}\` |"
+            echo "| Release tag | \`${{ steps.v.outputs.release_tag }}\` |"
+            echo "| PR head SHA | \`${{ github.event.pull_request.head.sha }}\` |"
+            echo "| Target branch | \`${{ github.base_ref }}\` |"
+            echo "| Triggered by | \`${{ github.actor }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  lint:
+    name: Lint
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - name: Summary
+        if: always()
+        working-directory: .
+        run: echo "### Lint — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  unit-test:
+    name: Unit Test
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+      - run: npm ci
+      - run: npm run test:unit
+      - name: Summary
+        if: always()
+        working-directory: .
+        run: echo "### Unit Tests — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  integration-test:
+    name: Integration Test
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: app/node
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: app/node/package-lock.json
+      - run: npm ci
+      - run: npm run test:integration
+      - name: Summary
+        if: always()
+        working-directory: .
+        run: echo "### Integration Tests — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  sonar:
+    name: SonarQube Scan
+    needs: meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: SonarQube scan
+        uses: SonarSource/sonarqube-scan-action@v8
+        with:
+          projectBaseDir: app/node
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Summary
+        if: always()
+        run: echo "### SonarQube Scan — \`${{ job.status }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build Docker Image
+    needs: [meta, lint, unit-test, integration-test, sonar]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      digest: ${{ steps.save.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build OCI image (load locally, no push)
+        uses: docker/build-push-action@v6
+        with:
+          context: app/node
+          file: app/node/Dockerfile
+          load: true
+          push: false
+          provenance: false
+          tags: node-app:${{ needs.meta.outputs.image_tag }}
+          build-args: |
+            APP_VERSION=${{ needs.meta.outputs.version }}
+          labels: |
+            org.opencontainers.image.title=node-app
+            org.opencontainers.image.version=${{ needs.meta.outputs.version }}
+            org.opencontainers.image.revision=${{ github.event.pull_request.head.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Save image as tar + checksum
+        id: save
+        run: |
+          set -euo pipefail
+          docker save node-app:${{ needs.meta.outputs.image_tag }} -o node-app.tar
+          sha256sum node-app.tar > SHA256SUMS.txt
+          DIGEST="$(cut -d' ' -f1 SHA256SUMS.txt)"
+          SIZE="$(du -h node-app.tar | cut -f1)"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "size=${SIZE}"     >> "$GITHUB_OUTPUT"
+
+      - name: Upload image artifact (run-scoped)
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-app-${{ needs.meta.outputs.image_tag }}
+          path: |
+            node-app.tar
+            SHA256SUMS.txt
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Docker Build"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Status | \`${{ job.status }}\` |"
+            echo "| Image tag | \`node-app:${{ needs.meta.outputs.image_tag }}\` |"
+            echo "| Artifact | \`node-app.tar\` (${{ steps.save.outputs.size }}) |"
+            echo "| SHA256 | \`${{ steps.save.outputs.digest }}\` |"
+            echo "| OCI version label | \`${{ needs.meta.outputs.version }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  trivy:
+    name: Trivy Security Scan
+    needs: [meta, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: node-app-${{ needs.meta.outputs.image_tag }}
+
+      - name: Load image from tar
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS.txt
+          docker load -i node-app.tar
+
+      - name: Trivy scan (table, gate on CRITICAL)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: node-app:${{ needs.meta.outputs.image_tag }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL"
+
+      - name: Trivy report for summary (JSON, non-gating)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: node-app:${{ needs.meta.outputs.image_tag }}
+          format: json
+          output: trivy.json
+          exit-code: "0"
+          ignore-unfixed: true
+          vuln-type: "os,library"
+          severity: "CRITICAL,HIGH,MEDIUM"
+
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          CRIT=0; HIGH=0; MED=0
+          if [ -f trivy.json ]; then
+            CRIT=$(grep -o '"Severity":"CRITICAL"' trivy.json | wc -l | tr -d ' ')
+            HIGH=$(grep -o '"Severity":"HIGH"'     trivy.json | wc -l | tr -d ' ')
+            MED=$(grep -o '"Severity":"MEDIUM"'    trivy.json | wc -l | tr -d ' ')
+          fi
+          {
+            echo "## Trivy Security Scan"
+            echo ""
+            echo "| Severity | Count |"
+            echo "|---|---|"
+            echo "| CRITICAL | ${CRIT} |"
+            echo "| HIGH | ${HIGH} |"
+            echo "| MEDIUM | ${MED} |"
+            echo ""
+            echo "Gate: \`${{ job.status }}\` — build fails if any CRITICAL is found."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Publish Artifact to GitHub Release
+    needs: [meta, build, trivy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download image artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: node-app-${{ needs.meta.outputs.image_tag }}
+
+      - name: Verify checksum before publishing
+        run: sha256sum -c SHA256SUMS.txt
+
+      - name: Publish to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ needs.meta.outputs.release_tag }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          ENV_NAME: ${{ needs.meta.outputs.env_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" node-app.tar SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$RELEASE_TAG" node-app.tar SHA256SUMS.txt \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "node-app ${VERSION} (${ENV_NAME})" \
+              --notes "Docker image artifact. version=${VERSION} env=${ENV_NAME} tag=${RELEASE_TAG}" \
+              --prerelease
+          fi
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Release Published"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Status | \`${{ job.status }}\` |"
+            echo "| Release tag | \`${{ needs.meta.outputs.release_tag }}\` |"
+            echo "| Version | \`${{ needs.meta.outputs.version }}\` |"
+            echo "| Environment | \`${{ needs.meta.outputs.env_name }}\` |"
+            echo "| SHA256 verified | before upload |"
+            echo "| Assets | \`node-app.tar\`, \`SHA256SUMS.txt\` |"
+            echo ""
+            echo "### CI Gate Results"
+            echo "| Stage | Result |"
+            echo "|---|---|"
+            echo "| Build | ${{ needs.build.result }} |"
+            echo "| Trivy | ${{ needs.trivy.result }} |"
+            echo "| Release | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

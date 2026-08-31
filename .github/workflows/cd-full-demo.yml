@@ -1,0 +1,125 @@
+name: CD Full Demo
+
+on:
+  push:
+    branches: [dev, stage, main]
+    paths:
+      - "app/node/**"
+      - ".github/workflows/cd-full-demo.yml"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: cd-${{ github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  resolve:
+    name: Resolve Latest Release for Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      env_name: ${{ steps.r.outputs.env_name }}
+      release_tag: ${{ steps.r.outputs.release_tag }}
+    steps:
+      - name: Find latest release for this environment
+        id: r
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "${{ github.ref_name }}" in
+            dev)   ENV_NAME="dev" ;;
+            stage) ENV_NAME="stage" ;;
+            main)  ENV_NAME="prod" ;;
+            *) echo "Unsupported branch"; exit 1 ;;
+          esac
+          RELEASE_TAG="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 \
+            | awk '{print $1}' \
+            | grep -E "^node-app-.*-${ENV_NAME}-" \
+            | head -n 1)"
+          if [ -z "${RELEASE_TAG}" ]; then
+            echo "No release found for environment ${ENV_NAME}"; exit 1
+          fi
+          echo "env_name=${ENV_NAME}"       >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
+      - name: Summary
+        run: |
+          {
+            echo "## CD Target Resolved"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Branch | \`${{ github.ref_name }}\` |"
+            echo "| Environment | \`${{ steps.r.outputs.env_name }}\` |"
+            echo "| Release tag | \`${{ steps.r.outputs.release_tag }}\` |"
+            echo "| Triggered by | \`${{ github.actor }}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy Artifact to S3
+    needs: resolve
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ needs.resolve.outputs.env_name }}
+    steps:
+      - name: Download artifact from GitHub Release
+        id: dl
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release download "${{ needs.resolve.outputs.release_tag }}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "node-app.tar" \
+            --pattern "SHA256SUMS.txt"
+          sha256sum -c SHA256SUMS.txt
+          DIGEST="$(cut -d' ' -f1 SHA256SUMS.txt)"
+          SIZE="$(du -h node-app.tar | cut -f1)"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "size=${SIZE}"     >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
+
+      - name: Upload artifact to environment S3 bucket
+        id: up
+        run: |
+          set -euo pipefail
+          KEY="${{ needs.resolve.outputs.release_tag }}.tar"
+          aws s3 cp node-app.tar "s3://${{ vars.S3_BUCKET_NAME }}/${KEY}"
+          aws s3api head-object --bucket "${{ vars.S3_BUCKET_NAME }}" --key "${KEY}"
+          echo "key=${KEY}" >> "$GITHUB_OUTPUT"
+
+      - name: Deployment summary
+        if: always()
+        run: |
+          {
+            echo "## Deployment Summary"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Status | \`${{ job.status }}\` |"
+            echo "| Environment | \`${{ needs.resolve.outputs.env_name }}\` |"
+            echo "| Release tag | \`${{ needs.resolve.outputs.release_tag }}\` |"
+            echo "| Artifact | \`node-app.tar\` (${{ steps.dl.outputs.size }}) |"
+            echo "| SHA256 | \`${{ steps.dl.outputs.digest }}\` |"
+            echo "| Checksum verified | yes (before upload) |"
+            echo "| Auth | GitHub OIDC → AWS (no static keys) |"
+            echo "| S3 bucket | \`${{ vars.S3_BUCKET_NAME }}\` |"
+            echo "| S3 object | \`${{ steps.up.outputs.key }}\` |"
+            echo "| S3 verified | head-object confirmed |"
+          } >> "$GITHUB_STEP_SUMMARY"
