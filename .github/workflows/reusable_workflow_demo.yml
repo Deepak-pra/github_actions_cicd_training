@@ -5,7 +5,6 @@ on:
     branches:
       - dev
       - stage
-      - main
     paths:
       - "app/node/**"
       - ".github/workflows/reusable_workflow_demo.yml"
