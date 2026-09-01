@@ -14,7 +14,7 @@ jobs:
   build:
     name: Validate, Build, Scan and Publish Artifact
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: app/node
