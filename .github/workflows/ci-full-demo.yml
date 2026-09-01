@@ -22,7 +22,7 @@ jobs:
   meta:
     name: Resolve Version and Environment
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     outputs:
       env_name: ${{ steps.v.outputs.env_name }}
       version: ${{ steps.v.outputs.version }}

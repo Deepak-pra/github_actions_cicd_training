@@ -6,6 +6,7 @@ on:
     paths:
       - "app/node/**"
       - ".github/workflows/cd-full-demo.yml"
+      - ".github/workflows/ci-full-demo.yml"
 
 permissions:
   contents: read
