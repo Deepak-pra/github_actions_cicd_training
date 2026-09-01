@@ -65,6 +65,34 @@ jobs:
           aws s3api head-object --bucket "${{ vars.S3_BUCKET_NAME }}" --key "${KEY}"
           echo "key=${KEY}" >> "$GITHUB_OUTPUT"
 
+      - name: Smoke test — verify artifact in S3 matches this run
+        id: smoke
+        run: |
+          KEY="${{ steps.up.outputs.key }}"
+          LOCAL_DIGEST="${{ steps.dl.outputs.digest }}"
+
+          # 1) Object must exist in S3
+          if ! aws s3api head-object --bucket "${{ vars.S3_BUCKET_NAME }}" --key "${KEY}" >/dev/null 2>&1; then
+            echo "result=object-missing" >> "$GITHUB_OUTPUT"
+            echo "::error::Smoke test failed — ${KEY} not found in s3://${{ vars.S3_BUCKET_NAME }}"
+            exit 1
+          fi
+
+          # 2) Download it back and compare bytes to what this run produced
+          aws s3 cp "s3://${{ vars.S3_BUCKET_NAME }}/${KEY}" s3-verify.tar
+          S3_DIGEST="$(sha256sum s3-verify.tar | cut -d' ' -f1)"
+
+          echo "s3_digest=${S3_DIGEST}" >> "$GITHUB_OUTPUT"
+
+          if [ "${S3_DIGEST}" != "${LOCAL_DIGEST}" ]; then
+            echo "result=digest-mismatch" >> "$GITHUB_OUTPUT"
+            echo "::error::Smoke test failed — S3 object digest ${S3_DIGEST} != run digest ${LOCAL_DIGEST}"
+            exit 1
+          fi
+
+          echo "result=verified" >> "$GITHUB_OUTPUT"
+          echo "Smoke test passed: s3://${{ vars.S3_BUCKET_NAME }}/${KEY} matches this run (sha256 ${S3_DIGEST})"
+
       - name: Deployment summary
         if: always()
         run: |
@@ -76,6 +104,8 @@ jobs:
           echo "| Environment | ${{ steps.meta.outputs.env_name }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Release tag | ${{ steps.meta.outputs.release_tag }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Artifact | node-app.tar (${{ steps.dl.outputs.size }}) |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| SHA256 | ${{ steps.dl.outputs.digest }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| SHA256 (run) | ${{ steps.dl.outputs.digest }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| SHA256 (in S3) | ${{ steps.smoke.outputs.s3_digest }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Smoke test | ${{ steps.smoke.outputs.result }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Auth | GitHub OIDC to AWS (no static keys) |" >> "$GITHUB_STEP_SUMMARY"
           echo "| S3 object | ${{ steps.up.outputs.key }} |" >> "$GITHUB_STEP_SUMMARY"
