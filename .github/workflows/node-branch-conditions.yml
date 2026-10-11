@@ -42,12 +42,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -85,12 +85,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -137,7 +137,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -164,7 +164,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4.37.7
+        uses: github/codeql-action/init@v4.38.3
         with:
           languages: javascript-typescript
           config: |
@@ -181,7 +181,7 @@ jobs:
               - "**/*.min.js"
 
       - name: Perform CodeQL analysis
-        uses: github/codeql-action/analyze@v4.37.7
+        uses: github/codeql-action/analyze@v4.38.3
         with:
           category: "/language:javascript-typescript"
 
@@ -219,12 +219,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -262,7 +262,7 @@ jobs:
 
       - name: Upload unit-test coverage
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: unit-coverage-${{ github.run_id }}
           path: app/node/coverage/
@@ -303,12 +303,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -331,7 +331,7 @@ jobs:
 
       - name: Upload integration-test results
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: integration-results-${{ github.run_id }}
           path: app/node/test-results/
@@ -358,13 +358,13 @@ jobs:
 
     steps:
       - name: Checkout repository with full history
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
 
       - name: Download unit-test coverage
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: unit-coverage-${{ github.run_id }}
           path: app/node/coverage
@@ -463,12 +463,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7.0.0
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
@@ -498,7 +498,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload generated artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: web-dist-${{ github.run_id }}
           path: app/node/dist/web/
@@ -533,12 +533,12 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           persist-credentials: false
 
       - name: Download generated artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
@@ -682,7 +682,7 @@ jobs:
 
       - name: Upload Trivy reports
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: trivy-reports-${{ github.run_id }}
           path: |
@@ -719,20 +719,20 @@ jobs:
 
     steps:
       - name: Download generated artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: web-dist-${{ github.run_id }}
           path: generated-artifact
 
       - name: Generate SPDX JSON SBOM
-        uses: anchore/sbom-action@v0.24.0
+        uses: anchore/sbom-action@v0.24.3
         with:
           path: generated-artifact
           format: spdx-json
           output-file: sbom.spdx.json
 
       - name: Upload SBOM
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: sbom-${{ github.run_id }}
           path: sbom.spdx.json
@@ -777,7 +777,7 @@ jobs:
     steps:
       - name: Download all available artifacts
         continue-on-error: true
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           path: all-artifacts
 
@@ -861,7 +861,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload CI evidence bundle
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ci-evidence-${{ github.run_id }}
           path: ci-evidence/
