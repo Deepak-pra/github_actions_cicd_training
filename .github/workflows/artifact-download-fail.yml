@@ -68,7 +68,7 @@ jobs:
           echo "The artifact names match, but the workflow run scope does not match."
 
       - name: Try to download artifact from producer workflow
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: cross-demo-app
           path: dist/
