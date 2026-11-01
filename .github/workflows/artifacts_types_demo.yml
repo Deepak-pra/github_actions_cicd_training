@@ -108,7 +108,7 @@ jobs:
 
       - name: Upload ESLint report artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.lint_artifact_name }}
           path: app/node/lint-results/eslint-report.json
@@ -117,7 +117,7 @@ jobs:
 
       - name: Upload ESLint execution log artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.lint_log_artifact_name }}
           path: app/node/logs/eslint-console.log
@@ -226,7 +226,7 @@ jobs:
 
       - name: Upload unit-test report artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.unit_artifact_name }}
           path: app/node/test-results/unit/
@@ -235,7 +235,7 @@ jobs:
 
       - name: Upload unit-test execution log artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.unit_log_artifact_name }}
           path: app/node/logs/unit-test-console.log
@@ -344,7 +344,7 @@ jobs:
 
       - name: Upload integration-test report artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.integration_artifact_name }}
           path: app/node/test-results/integration/
@@ -353,7 +353,7 @@ jobs:
 
       - name: Upload integration-test execution log artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.integration_log_artifact_name }}
           path: app/node/logs/integration-test-console.log
@@ -483,7 +483,7 @@ jobs:
 
       - name: Upload coverage report artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.coverage_artifact_name }}
           path: app/node/coverage/
@@ -492,7 +492,7 @@ jobs:
 
       - name: Upload coverage execution log artifact
         if: always()
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.coverage_log_artifact_name }}
           path: app/node/logs/coverage-console.log
@@ -609,7 +609,7 @@ jobs:
           echo "Coverage report expected      : app/node/coverage/${{ needs.coverage.outputs.coverage_lcov_name }}"
 
       - name: Download actual coverage report artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.coverage.outputs.coverage_artifact_name }}
           path: app/node/coverage/
@@ -737,7 +737,7 @@ jobs:
           echo "::endgroup::"
 
       - name: Upload application build artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.package.outputs.build_artifact_name }}
           path: packaged-build/
@@ -745,7 +745,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload application-build log artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.package.outputs.build_log_artifact_name }}
           path: app/node/logs/application-build-console.log
@@ -835,7 +835,7 @@ jobs:
           cat diagnostic-logs/debug-trace.log
 
       - name: Upload diagnostic logs artifact
-        uses: actions/upload-artifact@v7.0.1
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: ${{ steps.names.outputs.diagnostic_artifact_name }}
           path: diagnostic-logs/
@@ -872,37 +872,37 @@ jobs:
           echo "Diagnostic logs artifact: ${{ needs.logs.outputs.diagnostic_artifact_name }}"
 
       - name: Download ESLint report artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.lint.outputs.lint_artifact_name }}
           path: downloaded/eslint-report/
 
       - name: Download unit-test report artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.unit-test.outputs.unit_artifact_name }}
           path: downloaded/unit-test-report/
 
       - name: Download integration-test report artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.integration-test.outputs.integration_artifact_name }}
           path: downloaded/integration-test-report/
 
       - name: Download coverage report artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.coverage.outputs.coverage_artifact_name }}
           path: downloaded/coverage-report/
 
       - name: Download application build artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.application-build.outputs.build_artifact_name }}
           path: downloaded/application-build/
 
       - name: Download diagnostic logs artifact
-        uses: actions/download-artifact@v8.0.1
+        uses: actions/download-artifact@v8.0.2
         with:
           name: ${{ needs.logs.outputs.diagnostic_artifact_name }}
           path: downloaded/diagnostic-logs/
